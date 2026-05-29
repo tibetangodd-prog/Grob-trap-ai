@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -9,57 +10,42 @@
 
 <style>
 body{
+margin:0;
+padding:0;
 background:#111;
 color:white;
 font-family:Arial;
 text-align:center;
-margin:0;
-padding:0;
-overflow-x:hidden;
 }
 
 h1{
 margin-top:15px;
-font-size:34px;
 }
 
 #boardWrapper{
 position:relative;
-width:fit-content;
-margin:auto;
+width:640px;
+margin:20px auto;
 }
 
 #board{
-width:90vw;
-max-width:720px;
-margin:auto;
+width:640px;
 }
 
 #arrowCanvas{
 position:absolute;
-left:0;
 top:0;
+left:0;
 pointer-events:none;
 z-index:999;
 }
 
-#panel{
-width:90%;
-max-width:900px;
-margin:20px auto;
-background:#1b1b1b;
-border-radius:16px;
-padding:20px;
-box-sizing:border-box;
-text-align:left;
-}
-
 button{
-padding:12px 24px;
+padding:10px 20px;
 font-size:18px;
+margin:5px;
 border:none;
-border-radius:12px;
-margin:8px;
+border-radius:10px;
 background:#333;
 color:white;
 cursor:pointer;
@@ -67,6 +53,17 @@ cursor:pointer;
 
 button:hover{
 background:#555;
+}
+
+#panel{
+width:90%;
+max-width:900px;
+margin:20px auto;
+background:#1b1b1b;
+padding:15px;
+border-radius:15px;
+text-align:left;
+box-sizing:border-box;
 }
 
 .line{
@@ -93,8 +90,8 @@ font-size:17px;
 
 <div id="panel"></div>
 
-<script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
-<script src="https://unpkg.com/@chrisoakman/chess.js@0.10.3/chess.js"></script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 
 <script>
@@ -105,35 +102,23 @@ let board;
 let grobMode = false;
 let moveHistory = [];
 
-const canvas = document.getElementById('arrowCanvas');
-const ctx = canvas.getContext('2d');
-const panel = document.getElementById('panel');
+const canvas = document.getElementById("arrowCanvas");
+const ctx = canvas.getContext("2d");
+
+const panel = document.getElementById("panel");
 
 let arrows = [];
 
 function resizeCanvas(){
 
-const rect = document.getElementById('board').getBoundingClientRect();
-
-canvas.width = rect.width;
-canvas.height = rect.height;
-
-canvas.style.width = rect.width + 'px';
-canvas.style.height = rect.height + 'px';
+canvas.width = 640;
+canvas.height = 640;
 
 }
 
-window.addEventListener('resize', ()=>{
-
-resizeCanvas();
-renderArrows();
-
-});
-
 function squareToXY(square){
 
-const rect = document.getElementById('board').getBoundingClientRect();
-const size = rect.width / 8;
+const size = 640 / 8;
 
 const file = square.charCodeAt(0) - 97;
 const rank = 8 - parseInt(square[1]);
@@ -141,7 +126,7 @@ const rank = 8 - parseInt(square[1]);
 let x;
 let y;
 
-if(board.orientation() === 'white'){
+if(board.orientation() === "white"){
 
 x = file * size + size/2;
 y = rank * size + size/2;
@@ -172,7 +157,8 @@ ctx.lineTo(e.x,e.y);
 ctx.stroke();
 
 const angle = Math.atan2(e.y-s.y,e.x-s.x);
-const len = 18;
+
+const len = 20;
 
 ctx.beginPath();
 
@@ -189,6 +175,7 @@ e.y-len*Math.sin(angle+Math.PI/6)
 );
 
 ctx.closePath();
+
 ctx.fill();
 
 }
@@ -208,17 +195,22 @@ drawArrow(a.from,a.to,a.color);
 function clearArrows(){
 
 arrows = [];
+
 ctx.clearRect(0,0,canvas.width,canvas.height);
 
 }
 
 function addArrow(from,to,color,text){
 
-arrows.push({from,to,color});
+arrows.push({
+from,
+to,
+color
+});
 
-const div = document.createElement('div');
+const div = document.createElement("div");
 
-div.className = 'line';
+div.className = "line";
 
 div.innerHTML =
 '<span style="color:'+color+'">'+text+'</span> : '+from+' → '+to;
@@ -237,7 +229,7 @@ moveHistory = [];
 
 grobMode = false;
 
-panel.innerHTML = '';
+panel.innerHTML = "";
 
 clearArrows();
 
@@ -247,12 +239,7 @@ function flipBoard(){
 
 board.flip();
 
-setTimeout(()=>{
-
-resizeCanvas();
 renderArrows();
-
-},100);
 
 }
 
@@ -267,28 +254,26 @@ return true;
 function onDrop(source,target){
 
 const move = game.move({
-
 from:source,
 to:target,
-promotion:'q'
-
+promotion:"q"
 });
 
-if(move === null) return 'snapback';
+if(move === null) return "snapback";
 
 moveHistory.push(move);
 
 if(
 moveHistory.length === 1 &&
-move.from === 'g2' &&
-move.to === 'g4'
+move.from === "g2" &&
+move.to === "g4"
 ){
 
 grobMode = true;
 
-const div = document.createElement('div');
+const div = document.createElement("div");
 
-div.className = 'line';
+div.className = "line";
 
 div.innerHTML =
 '<span style="color:gold">Grob Trap Mode Activated</span>';
@@ -299,7 +284,7 @@ panel.prepend(div);
 
 board.position(game.fen());
 
-if(grobMode && game.turn() === 'w'){
+if(grobMode && game.turn() === "w"){
 
 setTimeout(analyzePosition,150);
 
@@ -313,10 +298,12 @@ board.position(game.fen());
 
 }
 
-board = Chessboard('board',{
+board = Chessboard("board",{
 
 draggable:true,
-position:'start',
+position:"start",
+pieceTheme:"https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png",
+
 onDragStart:onDragStart,
 onDrop:onDrop,
 onSnapEnd:onSnapEnd
@@ -329,7 +316,7 @@ function analyzePosition(){
 
 clearArrows();
 
-panel.innerHTML = '';
+panel.innerHTML = "";
 
 const moves = game.history({verbose:true});
 
@@ -337,70 +324,64 @@ const last = moves[moves.length-1];
 
 if(!last) return;
 
-addArrow('c2','c4','gold','Fritz Gambit');
-addArrow('d1','b3','cyan','Qb3 Pressure');
-addArrow('d1','a4','purple','Qa4+ Fork');
-addArrow('g2','b7','orange','Bxb7 Rook Theft');
-addArrow('f2','f4','pink','All-In Attack');
-addArrow('h2','h4','lime','Kingside Storm');
-addArrow('g4','g5','lime','Pawn Storm');
-addArrow('d1','h5','red','Mate Threat');
-addArrow('e2','e4','gold','Center Explosion');
-addArrow('b2','b4','white','Chaos Gambit');
+addArrow("c2","c4","gold","Fritz Gambit");
+addArrow("d1","b3","cyan","Qb3 Pressure");
+addArrow("d1","a4","purple","Qa4+ Fork");
+addArrow("g2","b7","orange","Bxb7 Rook Theft");
+addArrow("f2","f4","pink","All-In Attack");
+addArrow("h2","h4","lime","Kingside Storm");
+addArrow("g4","g5","lime","Pawn Storm");
+addArrow("d1","h5","red","Mate Threat");
+addArrow("e2","e4","gold","Center Explosion");
+addArrow("b2","b4","white","Chaos Gambit");
 
-if(last.to === 'd5'){
+if(last.to === "d5"){
 
-addArrow('g2','d5','yellow','Bishop Sacrifice');
-addArrow('b1','c3','cyan','Knight Launch');
-addArrow('f3','e5','cyan','Knight Sacrifice');
-
-}
-
-if(last.to === 'e5'){
-
-addArrow('h1','h3','orange','Rook Lift');
-addArrow('g2','b7','orange','Diagonal Raid');
-addArrow('g4','e5','red','Pawn Sacrifice');
+addArrow("g2","d5","yellow","Bishop Sacrifice");
+addArrow("b1","c3","cyan","Knight Launch");
+addArrow("f3","e5","cyan","Knight Sacrifice");
 
 }
 
-if(last.to === 'c6'){
+if(last.to === "e5"){
 
-addArrow('b3','b7','purple','Queen Infiltration');
-addArrow('g2','c6','yellow','Bishop Strike');
-
-}
-
-if(last.to === 'f6'){
-
-addArrow('g5','f6','red','Pawn Break');
-addArrow('d1','h5','red','Attack h7');
+addArrow("h1","h3","orange","Rook Lift");
+addArrow("g2","b7","orange","Diagonal Raid");
+addArrow("g4","e5","red","Pawn Sacrifice");
 
 }
 
-if(last.to === 'h5'){
+if(last.to === "c6"){
 
-addArrow('g4','h5','lime','Open File');
-addArrow('h1','h3','orange','Rook Lift');
+addArrow("b3","b7","purple","Queen Infiltration");
+addArrow("g2","c6","yellow","Bishop Strike");
 
 }
 
-if(last.to === 'c5'){
+if(last.to === "f6"){
 
-addArrow('a2','a4','silver','Wing Expansion');
-addArrow('c2','c3','gold','Reverse Setup');
+addArrow("g5","f6","red","Pawn Break");
+addArrow("d1","h5","red","Attack h7");
+
+}
+
+if(last.to === "h5"){
+
+addArrow("g4","h5","lime","Open File");
+addArrow("h1","h3","orange","Rook Lift");
+
+}
+
+if(last.to === "c5"){
+
+addArrow("a2","a4","silver","Wing Expansion");
+addArrow("c2","c3","gold","Reverse Setup");
 
 }
 
 renderArrows();
 
 }
-
-setTimeout(()=>{
-
-resizeCanvas();
-
-},300);
 
 </script>
 
