@@ -1,389 +1,3516 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Grob Trap AI</title>
-
-<link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
-
+<title>神聖烈焰爆炸 — Divine Judgment</title>
 <style>
-body{
-margin:0;
-padding:0;
-background:#111;
-color:white;
-font-family:Arial;
-text-align:center;
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-h1{
-margin-top:15px;
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000000;
 }
 
-#boardWrapper{
-position:relative;
-width:640px;
-margin:20px auto;
+#canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  cursor: crosshair;
+  background: #000000;
 }
 
-#board{
-width:640px;
+#ui-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
 }
 
-#arrowCanvas{
-position:absolute;
-top:0;
-left:0;
-pointer-events:none;
-z-index:999;
+#hint {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: rgba(255, 220, 100, 0.6);
+  font-family: 'Segoe UI', Arial, sans-serif;
+  font-size: 15px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  pointer-events: none;
+  animation: pulseHint 2s ease-in-out infinite;
+  text-shadow: 0 0 10px rgba(255, 200, 50, 0.5);
 }
 
-button{
-padding:10px 20px;
-font-size:18px;
-margin:5px;
-border:none;
-border-radius:10px;
-background:#333;
-color:white;
-cursor:pointer;
+@keyframes pulseHint {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.9; }
 }
 
-button:hover{
-background:#555;
-}
-
-#panel{
-width:90%;
-max-width:900px;
-margin:20px auto;
-background:#1b1b1b;
-padding:15px;
-border-radius:15px;
-text-align:left;
-box-sizing:border-box;
-}
-
-.line{
-margin-bottom:8px;
-font-size:17px;
+#particle-count {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  color: rgba(255, 200, 80, 0.5);
+  font-family: monospace;
+  font-size: 12px;
+  pointer-events: none;
 }
 </style>
 </head>
-
 <body>
-
-<h1>Grob Trap AI</h1>
-
-<div id="boardWrapper">
-<div id="board"></div>
-<canvas id="arrowCanvas"></canvas>
+<canvas id="canvas"></canvas>
+<div id="ui-overlay">
+  <div id="hint">⚡ 點擊任意位置召喚神聖審判 ⚡</div>
+  <div id="particle-count"></div>
 </div>
-
-<div>
-<button onclick="resetGame()">重新開始</button>
-<button onclick="flipBoard()">翻轉棋盤</button>
-<button onclick="clearArrows()">清除箭頭</button>
-</div>
-
-<div id="panel"></div>
-
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
-<script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
 
 <script>
+"use strict";
 
-const game = new Chess();
+// ============================================================
+// GLOBAL CANVAS SETUP
+// ============================================================
 
-let board;
-let grobMode = false;
-let moveHistory = [];
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const particleCountDisplay = document.getElementById('particle-count');
 
-const canvas = document.getElementById("arrowCanvas");
-const ctx = canvas.getContext("2d");
+let W = canvas.width = window.innerWidth;
+let H = canvas.height = window.innerHeight;
 
-const panel = document.getElementById("panel");
-
-let arrows = [];
-
-function resizeCanvas(){
-
-canvas.width = 640;
-canvas.height = 640;
-
-}
-
-function squareToXY(square){
-
-const size = 640 / 8;
-
-const file = square.charCodeAt(0) - 97;
-const rank = 8 - parseInt(square[1]);
-
-let x;
-let y;
-
-if(board.orientation() === "white"){
-
-x = file * size + size/2;
-y = rank * size + size/2;
-
-}else{
-
-x = (7-file) * size + size/2;
-y = (7-rank) * size + size/2;
-
-}
-
-return {x,y};
-
-}
-
-function drawArrow(from,to,color){
-
-const s = squareToXY(from);
-const e = squareToXY(to);
-
-ctx.strokeStyle = color;
-ctx.fillStyle = color;
-ctx.lineWidth = 8;
-
-ctx.beginPath();
-ctx.moveTo(s.x,s.y);
-ctx.lineTo(e.x,e.y);
-ctx.stroke();
-
-const angle = Math.atan2(e.y-s.y,e.x-s.x);
-
-const len = 20;
-
-ctx.beginPath();
-
-ctx.moveTo(e.x,e.y);
-
-ctx.lineTo(
-e.x-len*Math.cos(angle-Math.PI/6),
-e.y-len*Math.sin(angle-Math.PI/6)
-);
-
-ctx.lineTo(
-e.x-len*Math.cos(angle+Math.PI/6),
-e.y-len*Math.sin(angle+Math.PI/6)
-);
-
-ctx.closePath();
-
-ctx.fill();
-
-}
-
-function renderArrows(){
-
-ctx.clearRect(0,0,canvas.width,canvas.height);
-
-for(let a of arrows){
-
-drawArrow(a.from,a.to,a.color);
-
-}
-
-}
-
-function clearArrows(){
-
-arrows = [];
-
-ctx.clearRect(0,0,canvas.width,canvas.height);
-
-}
-
-function addArrow(from,to,color,text){
-
-arrows.push({
-from,
-to,
-color
+window.addEventListener('resize', () => {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
 });
 
-const div = document.createElement("div");
+// ============================================================
+// MATH UTILITIES
+// ============================================================
 
-div.className = "line";
+const TWO_PI = Math.PI * 2;
 
-div.innerHTML =
-'<span style="color:'+color+'">'+text+'</span> : '+from+' → '+to;
-
-panel.prepend(div);
-
+function lerp(a, b, t) {
+  return a + (b - a) * t;
 }
 
-function resetGame(){
-
-game.reset();
-
-board.start();
-
-moveHistory = [];
-
-grobMode = false;
-
-panel.innerHTML = "";
-
-clearArrows();
-
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
 }
 
-function flipBoard(){
-
-board.flip();
-
-renderArrows();
-
+function randFloat(lo, hi) {
+  return lo + Math.random() * (hi - lo);
 }
 
-function onDragStart(source,piece){
-
-if(game.game_over()) return false;
-
-return true;
-
+function randInt(lo, hi) {
+  return Math.floor(randFloat(lo, hi + 1));
 }
 
-function onDrop(source,target){
+function randAngle() {
+  return Math.random() * TWO_PI;
+}
 
-const move = game.move({
-from:source,
-to:target,
-promotion:"q"
+function polarToCartesian(angle, radius) {
+  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+}
+
+function distanceSq(ax, ay, bx, by) {
+  const dx = ax - bx;
+  const dy = ay - by;
+  return dx * dx + dy * dy;
+}
+
+function easeOutQuad(t) {
+  return 1 - (1 - t) * (1 - t);
+}
+
+function easeOutCubic(t) {
+  return 1 - Math.pow(1 - t, 3);
+}
+
+function easeOutQuart(t) {
+  return 1 - Math.pow(1 - t, 4);
+}
+
+function easeInQuad(t) {
+  return t * t;
+}
+
+function easeInOutSine(t) {
+  return -(Math.cos(Math.PI * t) - 1) / 2;
+}
+
+// ============================================================
+// COLOR UTILITIES
+// ============================================================
+
+function rgbaStr(r, g, b, a) {
+  return `rgba(${r|0},${g|0},${b|0},${clamp(a, 0, 1).toFixed(3)})`;
+}
+
+function hslToRgb(h, s, l) {
+  s /= 100;
+  l /= 100;
+  const k = n => (n + h / 30) % 12;
+  const a2 = s * Math.min(l, 1 - l);
+  const f = n => l - a2 * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+}
+
+function lerpColor(r1, g1, b1, r2, g2, b2, t) {
+  return [
+    lerp(r1, r2, t) | 0,
+    lerp(g1, g2, t) | 0,
+    lerp(b1, b2, t) | 0
+  ];
+}
+
+// Flame color ramp: white core -> yellow -> orange -> red -> dark red
+function flameColor(t) {
+  // t: 0=core(white), 1=edge(dark red)
+  if (t < 0.15) {
+    const tt = t / 0.15;
+    return lerpColor(255, 255, 255, 255, 255, 200, tt);
+  } else if (t < 0.35) {
+    const tt = (t - 0.15) / 0.20;
+    return lerpColor(255, 255, 200, 255, 220, 50, tt);
+  } else if (t < 0.55) {
+    const tt = (t - 0.35) / 0.20;
+    return lerpColor(255, 220, 50, 255, 130, 0, tt);
+  } else if (t < 0.75) {
+    const tt = (t - 0.55) / 0.20;
+    return lerpColor(255, 130, 0, 220, 30, 0, tt);
+  } else {
+    const tt = (t - 0.75) / 0.25;
+    return lerpColor(220, 30, 0, 80, 0, 0, tt);
+  }
+}
+
+// Holy/divine color ramp: brilliant white -> golden -> pale yellow -> champagne
+function holyColor(t) {
+  if (t < 0.3) {
+    const tt = t / 0.3;
+    return lerpColor(255, 255, 255, 255, 255, 180, tt);
+  } else if (t < 0.6) {
+    const tt = (t - 0.3) / 0.3;
+    return lerpColor(255, 255, 180, 255, 220, 80, tt);
+  } else {
+    const tt = (t - 0.6) / 0.4;
+    return lerpColor(255, 220, 80, 200, 160, 30, tt);
+  }
+}
+
+// ============================================================
+// BASE PARTICLE CLASS
+// ============================================================
+
+class BaseParticle {
+  constructor() {
+    this.x = 0;
+    this.y = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.ax = 0;
+    this.ay = 0;
+    this.life = 1.0;       // 0..1, 0 = dead
+    this.maxLife = 1.0;    // seconds
+    this.age = 0.0;        // seconds elapsed
+    this.size = 1.0;
+    this.alpha = 1.0;
+    this.rotation = 0;
+    this.rotSpeed = 0;
+    this.r = 255;
+    this.g = 255;
+    this.b = 255;
+    this.active = false;
+    this.mass = 1.0;
+    this.drag = 0.98;
+  }
+
+  reset() {
+    this.x = 0;
+    this.y = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.ax = 0;
+    this.ay = 0;
+    this.life = 1.0;
+    this.age = 0.0;
+    this.size = 1.0;
+    this.alpha = 1.0;
+    this.rotation = 0;
+    this.rotSpeed = 0;
+    this.active = false;
+  }
+
+  get progress() {
+    // 0 = just born, 1 = dead
+    return this.age / this.maxLife;
+  }
+
+  update(dt) {
+    this.age += dt;
+    if (this.age >= this.maxLife) {
+      this.active = false;
+      return;
+    }
+    this.vx = (this.vx + this.ax * dt) * this.drag;
+    this.vy = (this.vy + this.ay * dt) * this.drag;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.rotation += this.rotSpeed * dt;
+    this.life = 1.0 - this.progress;
+  }
+
+  draw(ctx) {
+    // Override in subclass
+  }
+}
+
+// ============================================================
+// FLAME PARTICLE
+// ============================================================
+
+class FlameParticle extends BaseParticle {
+  constructor() {
+    super();
+    this.baseSize = 10;
+    this.noiseOffset = 0;
+    this.noiseSpeed = 0;
+    this.wobbleAmp = 0;
+    this.wobbleFreq = 0;
+    this.colorPhase = 0;
+    this.trailLength = 0;
+    this.trail = [];
+    this.maxTrailLength = 8;
+    this.turbulence = 0;
+    this.turbulenceTimer = 0;
+    this.turbulenceInterval = 0;
+    this.turbulenceVx = 0;
+    this.turbulenceVy = 0;
+  }
+
+  init(x, y, options = {}) {
+    this.reset();
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.trail = [];
+
+    const angle = options.angle !== undefined ? options.angle : randAngle();
+    const speed = options.speed !== undefined ? options.speed : randFloat(60, 180);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+
+    this.ay = options.gravity !== undefined ? options.gravity : -120;
+    this.drag = randFloat(0.93, 0.97);
+    this.maxLife = randFloat(0.6, 1.4);
+    this.baseSize = options.size !== undefined ? options.size : randFloat(12, 32);
+    this.size = this.baseSize;
+
+    this.colorPhase = options.colorPhase !== undefined ? options.colorPhase : randFloat(0.0, 0.6);
+    const [r, g, b] = flameColor(this.colorPhase);
+    this.r = r;
+    this.g = g;
+    this.b = b;
+
+    this.noiseOffset = Math.random() * 100;
+    this.noiseSpeed = randFloat(2, 5);
+    this.wobbleAmp = randFloat(15, 40);
+    this.wobbleFreq = randFloat(3, 7);
+    this.turbulence = randFloat(20, 60);
+    this.turbulenceTimer = 0;
+    this.turbulenceInterval = randFloat(0.05, 0.15);
+    this.turbulenceVx = 0;
+    this.turbulenceVy = 0;
+    this.rotSpeed = randFloat(-3, 3);
+    this.maxTrailLength = randInt(4, 10);
+    this.mass = randFloat(0.8, 1.2);
+  }
+
+  update(dt) {
+    if (!this.active) return;
+
+    // Store trail before moving
+    if (this.trail.length >= this.maxTrailLength) {
+      this.trail.shift();
+    }
+    this.trail.push({ x: this.x, y: this.y, size: this.size, alpha: this.alpha });
+
+    // Turbulence kick
+    this.turbulenceTimer += dt;
+    if (this.turbulenceTimer >= this.turbulenceInterval) {
+      this.turbulenceTimer = 0;
+      this.turbulenceVx = randFloat(-this.turbulence, this.turbulence);
+      this.turbulenceVy = randFloat(-this.turbulence * 0.5, this.turbulence * 0.5);
+    }
+
+    this.ax = this.turbulenceVx;
+    this.ay = -120 + this.turbulenceVy;
+
+    super.update(dt);
+
+    const p = this.progress;
+    // Flame grows then shrinks
+    if (p < 0.3) {
+      this.size = this.baseSize * lerp(0.4, 1.2, p / 0.3);
+    } else {
+      this.size = this.baseSize * lerp(1.2, 0, (p - 0.3) / 0.7);
+    }
+
+    // Color shifts hotter -> cooler as particle ages
+    const colorT = clamp(this.colorPhase + p * 0.5, 0, 1);
+    const [r, g, b] = flameColor(colorT);
+    this.r = r;
+    this.g = g;
+    this.b = b;
+
+    // Alpha: ramp up, then fade
+    if (p < 0.15) {
+      this.alpha = lerp(0, 1, p / 0.15);
+    } else {
+      this.alpha = lerp(1, 0, (p - 0.15) / 0.85);
+    }
+    this.alpha = clamp(this.alpha, 0, 1);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.size <= 0.5) return;
+
+    // Draw trail
+    for (let i = 0; i < this.trail.length; i++) {
+      const tp = (i + 1) / this.trail.length;
+      const ts = this.trail[i];
+      const trailAlpha = this.alpha * tp * 0.35;
+      const trailSize = ts.size * tp * 0.6;
+      if (trailSize < 0.5) continue;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.shadowBlur = trailSize * 2;
+      ctx.shadowColor = rgbaStr(this.r, this.g, this.b, trailAlpha * 0.7);
+      ctx.globalAlpha = trailAlpha;
+
+      const grad = ctx.createRadialGradient(ts.x, ts.y, 0, ts.x, ts.y, trailSize);
+      grad.addColorStop(0, rgbaStr(255, 255, 200, 1));
+      grad.addColorStop(0.4, rgbaStr(this.r, this.g, this.b, 1));
+      grad.addColorStop(1, rgbaStr(this.r, this.g, this.b, 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(ts.x, ts.y, trailSize, 0, TWO_PI);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Draw main flame orb
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = this.alpha;
+
+    // Outer glow
+    const outerSize = this.size * 2.2;
+    ctx.shadowBlur = outerSize * 1.5;
+    ctx.shadowColor = rgbaStr(this.r, this.g * 0.6, 0, this.alpha * 0.8);
+
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+    grad.addColorStop(0,   rgbaStr(255, 255, 255, 1));
+    grad.addColorStop(0.2, rgbaStr(255, 255, 180, 1));
+    grad.addColorStop(0.5, rgbaStr(this.r, this.g, this.b, 1));
+    grad.addColorStop(0.8, rgbaStr(this.r, Math.max(0, this.g - 60), 0, 0.7));
+    grad.addColorStop(1,   rgbaStr(this.r, 0, 0, 0));
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, TWO_PI);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// OUTER FLAME PARTICLE (larger, slower, at periphery)
+// ============================================================
+
+class OuterFlameParticle extends BaseParticle {
+  constructor() {
+    super();
+    this.baseSize = 20;
+    this.elongation = 1;
+    this.flickerTimer = 0;
+    this.flickerSpeed = 0;
+    this.flickerPhase = 0;
+  }
+
+  init(x, y, options = {}) {
+    this.reset();
+    this.active = true;
+    this.x = x;
+    this.y = y;
+
+    const angle = options.angle !== undefined ? options.angle : randFloat(-Math.PI * 1.2, -Math.PI * 0.8 + Math.PI * 0.4 * Math.random());
+    const speed = options.speed !== undefined ? options.speed : randFloat(40, 120);
+    this.vx = Math.cos(angle) * speed + randFloat(-30, 30);
+    this.vy = Math.sin(angle) * speed - randFloat(20, 80);
+
+    this.ay = -80;
+    this.ax = randFloat(-20, 20);
+    this.drag = randFloat(0.90, 0.95);
+    this.maxLife = randFloat(0.8, 2.0);
+    this.baseSize = options.size !== undefined ? options.size : randFloat(25, 70);
+    this.size = this.baseSize;
+    this.elongation = randFloat(1.1, 2.0);
+    this.flickerSpeed = randFloat(8, 18);
+    this.flickerPhase = Math.random() * TWO_PI;
+    this.rotSpeed = randFloat(-1.5, 1.5);
+    this.colorPhase = randFloat(0.3, 0.7);
+    const [r, g, b] = flameColor(this.colorPhase);
+    this.r = r;
+    this.g = g;
+    this.b = b;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.flickerTimer += dt;
+    super.update(dt);
+
+    const p = this.progress;
+    const flicker = 1 + 0.2 * Math.sin(this.flickerTimer * this.flickerSpeed + this.flickerPhase);
+
+    if (p < 0.25) {
+      this.size = this.baseSize * lerp(0.3, 1.0, p / 0.25) * flicker;
+    } else {
+      this.size = this.baseSize * lerp(1.0, 0.0, (p - 0.25) / 0.75) * flicker;
+    }
+
+    const colorT = clamp(this.colorPhase + p * 0.4, 0, 1);
+    const [r, g, b] = flameColor(colorT);
+    this.r = r;
+    this.g = g;
+    this.b = b;
+
+    if (p < 0.1) {
+      this.alpha = lerp(0, 0.85, p / 0.1);
+    } else if (p > 0.5) {
+      this.alpha = lerp(0.85, 0, (p - 0.5) / 0.5);
+    } else {
+      this.alpha = 0.85;
+    }
+    this.alpha = clamp(this.alpha, 0, 1);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.size <= 0.5) return;
+
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation);
+    ctx.scale(1, this.elongation);
+    ctx.translate(-this.x, -this.y);
+
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = this.alpha;
+    ctx.shadowBlur = this.size * 3;
+    ctx.shadowColor = rgbaStr(this.r, Math.max(0, this.g - 30), 0, 0.9);
+
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+    grad.addColorStop(0,   rgbaStr(255, 255, 220, 1));
+    grad.addColorStop(0.3, rgbaStr(255, Math.min(255, this.g + 30), this.b, 0.9));
+    grad.addColorStop(0.6, rgbaStr(this.r, this.g, this.b, 0.7));
+    grad.addColorStop(0.85, rgbaStr(this.r, Math.max(0, this.g - 80), 0, 0.3));
+    grad.addColorStop(1,   rgbaStr(80, 0, 0, 0));
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, TWO_PI);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// FIRE TRAIL PARTICLE (fast-moving streak)
+// ============================================================
+
+class FireTrailParticle extends BaseParticle {
+  constructor() {
+    super();
+    this.length = 20;
+    this.angle = 0;
+    this.speed = 0;
+    this.tailX = 0;
+    this.tailY = 0;
+    this.width = 3;
+  }
+
+  init(x, y, options = {}) {
+    this.reset();
+    this.active = true;
+    this.x = x;
+    this.y = y;
+
+    this.angle = options.angle !== undefined ? options.angle : randAngle();
+    this.speed = options.speed !== undefined ? options.speed : randFloat(150, 400);
+    this.vx = Math.cos(this.angle) * this.speed;
+    this.vy = Math.sin(this.angle) * this.speed;
+    this.ay = randFloat(30, 80);
+    this.drag = randFloat(0.94, 0.98);
+    this.maxLife = randFloat(0.3, 0.8);
+    this.width = randFloat(2, 6);
+    this.length = this.speed * 0.08;
+
+    const [r, g, b] = flameColor(randFloat(0, 0.4));
+    this.r = r;
+    this.g = g;
+    this.b = b;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
+    this.length = speed * 0.07;
+    const nx = this.vx / (speed + 0.001);
+    const ny = this.vy / (speed + 0.001);
+    this.tailX = this.x - nx * this.length;
+    this.tailY = this.y - ny * this.length;
+
+    super.update(dt);
+
+    const p = this.progress;
+    this.alpha = p < 0.1 ? lerp(0, 1, p / 0.1) : lerp(1, 0, (p - 0.1) / 0.9);
+    this.alpha = clamp(this.alpha, 0, 1);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = this.alpha;
+    ctx.shadowBlur = this.width * 6;
+    ctx.shadowColor = rgbaStr(this.r, this.g, 0, this.alpha);
+
+    const grad = ctx.createLinearGradient(this.tailX, this.tailY, this.x, this.y);
+    grad.addColorStop(0, rgbaStr(this.r, this.g, this.b, 0));
+    grad.addColorStop(0.6, rgbaStr(this.r, this.g, this.b, 0.8));
+    grad.addColorStop(1, rgbaStr(255, 255, 200, 1));
+
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = this.width;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(this.tailX, this.tailY);
+    ctx.lineTo(this.x, this.y);
+    ctx.stroke();
+
+    // Head glow
+    const headGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.width * 2.5);
+    headGrad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+    headGrad.addColorStop(0.5, rgbaStr(this.r, this.g, this.b, 0.8));
+    headGrad.addColorStop(1, rgbaStr(this.r, this.g, this.b, 0));
+    ctx.fillStyle = headGrad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.width * 2.5, 0, TWO_PI);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// SPARK PARTICLE (high-speed, glowing, with trail)
+// ============================================================
+
+class SparkParticle extends BaseParticle {
+  constructor() {
+    super();
+    this.trail = [];
+    this.maxTrailLength = 14;
+    this.sparkWidth = 2;
+    this.brightness = 1;
+    this.colorMode = 0; // 0=flame, 1=white, 2=holy
+    this.flickerAmt = 0;
+  }
+
+  init(x, y, options = {}) {
+    this.reset();
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.trail = [];
+
+    const angle = options.angle !== undefined ? options.angle : randAngle();
+    const speed = options.speed !== undefined ? options.speed : randFloat(250, 700);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.ay = randFloat(100, 250);
+    this.drag = randFloat(0.97, 0.995);
+    this.maxLife = randFloat(0.5, 1.2);
+    this.sparkWidth = randFloat(1.5, 4.5);
+    this.brightness = randFloat(0.8, 1.4);
+    this.flickerAmt = randFloat(0.05, 0.25);
+    this.colorMode = options.colorMode !== undefined ? options.colorMode : randInt(0, 1);
+    this.maxTrailLength = randInt(8, 16);
+
+    if (this.colorMode === 1) {
+      this.r = 255; this.g = 255; this.b = 200;
+    } else {
+      const [r, g, b] = flameColor(randFloat(0, 0.3));
+      this.r = r; this.g = g; this.b = b;
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    if (this.trail.length >= this.maxTrailLength) {
+      this.trail.shift();
+    }
+    this.trail.push({ x: this.x, y: this.y });
+
+    super.update(dt);
+
+    const p = this.progress;
+    this.alpha = p < 0.05 ? lerp(0, 1, p / 0.05) : Math.pow(1 - p, 1.5);
+    this.alpha *= this.brightness;
+    this.alpha = clamp(this.alpha, 0, 1);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.trail.length < 2) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (let i = 1; i < this.trail.length; i++) {
+      const tp = i / this.trail.length;
+      const prev = this.trail[i - 1];
+      const curr = this.trail[i];
+      const segAlpha = this.alpha * tp * 0.9;
+      if (segAlpha < 0.005) continue;
+
+      const grad = ctx.createLinearGradient(prev.x, prev.y, curr.x, curr.y);
+      if (this.colorMode === 1) {
+        grad.addColorStop(0, rgbaStr(255, 255, 150, segAlpha * 0.3));
+        grad.addColorStop(1, rgbaStr(255, 255, 255, segAlpha));
+      } else {
+        grad.addColorStop(0, rgbaStr(this.r, this.g, 0, segAlpha * 0.2));
+        grad.addColorStop(0.7, rgbaStr(this.r, this.g, this.b, segAlpha * 0.8));
+        grad.addColorStop(1, rgbaStr(255, 255, 200, segAlpha));
+      }
+
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = this.sparkWidth * tp;
+      ctx.shadowBlur = this.sparkWidth * 8 * tp;
+      ctx.shadowColor = rgbaStr(255, 200, 50, segAlpha * 0.9);
+      ctx.globalAlpha = 1;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(prev.x, prev.y);
+      ctx.lineTo(curr.x, curr.y);
+      ctx.stroke();
+    }
+
+    // Bright head
+    ctx.shadowBlur = this.sparkWidth * 12;
+    ctx.shadowColor = rgbaStr(255, 255, 200, this.alpha);
+    ctx.globalAlpha = this.alpha;
+    const headGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.sparkWidth * 3);
+    headGrad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+    headGrad.addColorStop(0.4, rgbaStr(255, 240, 150, 0.9));
+    headGrad.addColorStop(1, rgbaStr(255, 150, 0, 0));
+    ctx.fillStyle = headGrad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.sparkWidth * 3, 0, TWO_PI);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// EMBER PARTICLE (slow drifting, gravity+drag)
+// ============================================================
+
+class EmberParticle extends BaseParticle {
+  constructor() {
+    super();
+    this.glowRadius = 3;
+    this.windX = 0;
+    this.windTimer = 0;
+    this.windInterval = 0;
+    this.oscillation = 0;
+    this.oscillationFreq = 0;
+    this.oscillationTimer = 0;
+    this.cooling = 0;
+  }
+
+  init(x, y, options = {}) {
+    this.reset();
+    this.active = true;
+    this.x = x;
+    this.y = y;
+
+    const angle = options.angle !== undefined ? options.angle
+      : randFloat(-Math.PI * 1.5, -Math.PI * 0.5) + randFloat(-0.5, 0.5);
+    const speed = randFloat(30, 150);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.ay = 40;  // gravity pulls down gently
+    this.drag = randFloat(0.96, 0.99);
+    this.maxLife = randFloat(1.5, 4.0);
+    this.size = randFloat(2, 6);
+    this.glowRadius = this.size * randFloat(3, 6);
+    this.oscillation = randFloat(10, 40);
+    this.oscillationFreq = randFloat(1.5, 4);
+    this.oscillationTimer = Math.random() * TWO_PI;
+    this.windTimer = 0;
+    this.windInterval = randFloat(0.3, 0.8);
+    this.windX = randFloat(-20, 20);
+    this.cooling = randFloat(0.3, 0.7);
+
+    // Start hot
+    this.r = 255;
+    this.g = randInt(150, 255);
+    this.b = randInt(0, 80);
+  }
+
+  update(dt) {
+    if (!this.active) return;
+
+    this.oscillationTimer += dt;
+    this.windTimer += dt;
+    if (this.windTimer >= this.windInterval) {
+      this.windTimer = 0;
+      this.windX = randFloat(-25, 25);
+    }
+
+    this.ax = this.oscillation * Math.sin(this.oscillationTimer * this.oscillationFreq) + this.windX;
+    super.update(dt);
+
+    const p = this.progress;
+    // Ember cools over time
+    const coolT = clamp(p * this.cooling + this.cooling * 0.5, 0, 1);
+    if (coolT < 0.3) {
+      // hot: white-yellow
+      this.r = 255;
+      this.g = lerp(200, 255, 1 - coolT / 0.3) | 0;
+      this.b = lerp(0, 100, coolT / 0.3) | 0;
+    } else if (coolT < 0.6) {
+      // warm: orange
+      this.r = 255;
+      this.g = lerp(200, 80, (coolT - 0.3) / 0.3) | 0;
+      this.b = 0;
+    } else {
+      // cool: red -> dark red
+      this.r = lerp(255, 100, (coolT - 0.6) / 0.4) | 0;
+      this.g = lerp(80, 0, (coolT - 0.6) / 0.4) | 0;
+      this.b = 0;
+    }
+
+    this.size = this.size * (1 - dt * 0.05);
+    if (p < 0.1) {
+      this.alpha = lerp(0, 1, p / 0.1);
+    } else if (p > 0.7) {
+      this.alpha = lerp(1, 0, (p - 0.7) / 0.3);
+    } else {
+      this.alpha = 1;
+    }
+    this.alpha = clamp(this.alpha, 0, 1);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.size <= 0.2) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = this.alpha * 0.9;
+    ctx.shadowBlur = this.glowRadius;
+    ctx.shadowColor = rgbaStr(this.r, this.g, 0, this.alpha);
+
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 1.5);
+    grad.addColorStop(0, rgbaStr(255, 255, 220, 1));
+    grad.addColorStop(0.4, rgbaStr(this.r, this.g, this.b, 0.9));
+    grad.addColorStop(1, rgbaStr(this.r, Math.max(0, this.g - 50), 0, 0));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * 1.5, 0, TWO_PI);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// HOLY PARTICLE (divine glowing, floating, rotating with trail)
+// ============================================================
+
+class HolyParticle extends BaseParticle {
+  constructor() {
+    super();
+    this.orbitRadius = 0;
+    this.orbitAngle = 0;
+    this.orbitSpeed = 0;
+    this.orbitCenterX = 0;
+    this.orbitCenterY = 0;
+    this.trail = [];
+    this.maxTrailLength = 12;
+    this.starPoints = 0;
+    this.innerRadius = 0;
+    this.pulseTimer = 0;
+    this.pulseSpeed = 0;
+    this.riseSpeed = 0;
+    this.floatAmpX = 0;
+    this.floatAmpY = 0;
+    this.floatFreqX = 0;
+    this.floatFreqY = 0;
+    this.floatTimer = 0;
+    this.sparklePhase = 0;
+  }
+
+  init(x, y, options = {}) {
+    this.reset();
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.trail = [];
+
+    const angle = options.angle !== undefined ? options.angle : randAngle();
+    const speed = randFloat(50, 200);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed - randFloat(30, 100);
+    this.ay = randFloat(-60, -20);
+    this.drag = randFloat(0.92, 0.97);
+    this.maxLife = randFloat(1.2, 2.5);
+    this.size = randFloat(4, 14);
+    this.maxTrailLength = randInt(8, 16);
+    this.starPoints = randInt(4, 8);
+    this.innerRadius = randFloat(0.3, 0.6);
+    this.pulseTimer = Math.random() * TWO_PI;
+    this.pulseSpeed = randFloat(5, 12);
+    this.riseSpeed = randFloat(20, 80);
+    this.floatAmpX = randFloat(10, 40);
+    this.floatAmpY = randFloat(5, 20);
+    this.floatFreqX = randFloat(1, 3);
+    this.floatFreqY = randFloat(2, 5);
+    this.floatTimer = Math.random() * TWO_PI;
+    this.sparklePhase = Math.random() * TWO_PI;
+    this.rotSpeed = randFloat(-2, 2);
+
+    const [r, g, b] = holyColor(randFloat(0, 0.5));
+    this.r = r; this.g = g; this.b = b;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+
+    this.floatTimer += dt;
+    this.pulseTimer += dt;
+
+    // Additional float motion
+    this.ax = this.floatAmpX * Math.sin(this.floatTimer * this.floatFreqX);
+    this.ay = -40 + this.floatAmpY * Math.sin(this.floatTimer * this.floatFreqY);
+
+    if (this.trail.length >= this.maxTrailLength) {
+      this.trail.shift();
+    }
+    this.trail.push({ x: this.x, y: this.y, size: this.size, rotation: this.rotation });
+
+    super.update(dt);
+
+    const p = this.progress;
+    const pulse = 1 + 0.25 * Math.sin(this.pulseTimer * this.pulseSpeed + this.sparklePhase);
+    this.size = this.size * pulse;
+
+    const colorT = clamp(p * 0.4, 0, 1);
+    const [r, g, b] = holyColor(colorT);
+    this.r = r; this.g = g; this.b = b;
+
+    if (p < 0.1) {
+      this.alpha = lerp(0, 1, p / 0.1);
+    } else if (p > 0.6) {
+      this.alpha = lerp(1, 0, (p - 0.6) / 0.4);
+    } else {
+      this.alpha = 1;
+    }
+    this.alpha = clamp(this.alpha, 0, 1);
+  }
+
+  drawStar(ctx, cx, cy, outerR, innerR, points, rotation) {
+    ctx.beginPath();
+    for (let i = 0; i < points * 2; i++) {
+      const angle = (i * Math.PI / points) + rotation;
+      const r2 = i % 2 === 0 ? outerR : outerR * innerR;
+      const px = cx + Math.cos(angle) * r2;
+      const py = cy + Math.sin(angle) * r2;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.size <= 0.3) return;
+
+    // Draw trail
+    for (let i = 0; i < this.trail.length; i++) {
+      const tp = (i + 1) / this.trail.length;
+      const ts = this.trail[i];
+      const trailAlpha = this.alpha * tp * 0.4;
+      const trailSize = ts.size * tp * 0.7;
+      if (trailSize < 0.5 || trailAlpha < 0.01) continue;
+
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = trailAlpha;
+      ctx.shadowBlur = trailSize * 4;
+      ctx.shadowColor = rgbaStr(this.r, this.g, this.b, trailAlpha * 0.8);
+
+      const grad = ctx.createRadialGradient(ts.x, ts.y, 0, ts.x, ts.y, trailSize);
+      grad.addColorStop(0, rgbaStr(255, 255, 200, 1));
+      grad.addColorStop(0.5, rgbaStr(this.r, this.g, this.b, 0.7));
+      grad.addColorStop(1, rgbaStr(this.r, this.g, 50, 0));
+      ctx.fillStyle = grad;
+      this.drawStar(ctx, ts.x, ts.y, trailSize, this.innerRadius, this.starPoints, ts.rotation);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Main holy particle
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = this.alpha;
+    ctx.shadowBlur = this.size * 6;
+    ctx.shadowColor = rgbaStr(255, 240, 150, this.alpha * 1.2);
+
+    // Outer glow halo
+    const haloGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size * 3);
+    haloGrad.addColorStop(0, rgbaStr(255, 255, 200, 0.4));
+    haloGrad.addColorStop(0.5, rgbaStr(this.r, this.g, this.b, 0.2));
+    haloGrad.addColorStop(1, rgbaStr(this.r, this.g, 0, 0));
+    ctx.fillStyle = haloGrad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size * 3, 0, TWO_PI);
+    ctx.fill();
+
+    // Star shape
+    ctx.shadowBlur = this.size * 8;
+    const starGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.size);
+    starGrad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+    starGrad.addColorStop(0.3, rgbaStr(255, 255, 200, 1));
+    starGrad.addColorStop(0.7, rgbaStr(this.r, this.g, this.b, 0.9));
+    starGrad.addColorStop(1, rgbaStr(this.r, this.g, 0, 0));
+    ctx.fillStyle = starGrad;
+    this.drawStar(ctx, this.x, this.y, this.size, this.innerRadius, this.starPoints, this.rotation);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// HOLY TRAIL PARTICLE (thin streaking light lines for holy effect)
+// ============================================================
+
+class HolyTrailParticle extends BaseParticle {
+  constructor() {
+    super();
+    this.trail = [];
+    this.maxTrailLength = 20;
+    this.streamWidth = 2;
+  }
+
+  init(x, y, options = {}) {
+    this.reset();
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.trail = [];
+
+    const angle = options.angle !== undefined ? options.angle : randFloat(-Math.PI * 1.6, -Math.PI * 0.4);
+    const speed = randFloat(80, 300);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+    this.ay = randFloat(-50, -150);
+    this.drag = randFloat(0.93, 0.97);
+    this.maxLife = randFloat(0.8, 1.8);
+    this.streamWidth = randFloat(1, 3.5);
+    this.maxTrailLength = randInt(12, 24);
+    this.rotSpeed = 0;
+
+    const [r, g, b] = holyColor(randFloat(0, 0.4));
+    this.r = r; this.g = g; this.b = b;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    if (this.trail.length >= this.maxTrailLength) this.trail.shift();
+    this.trail.push({ x: this.x, y: this.y });
+    super.update(dt);
+    const p = this.progress;
+    this.alpha = p < 0.08 ? lerp(0, 1, p / 0.08) : Math.pow(1 - p, 2);
+    this.alpha = clamp(this.alpha, 0, 1);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.trail.length < 2) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+
+    for (let i = 1; i < this.trail.length; i++) {
+      const tp = i / this.trail.length;
+      const prev = this.trail[i - 1];
+      const curr = this.trail[i];
+      const segAlpha = this.alpha * tp;
+      if (segAlpha < 0.005) continue;
+
+      ctx.globalAlpha = segAlpha;
+      ctx.shadowBlur = this.streamWidth * 10 * tp;
+      ctx.shadowColor = rgbaStr(255, 240, 150, segAlpha);
+
+      const grad = ctx.createLinearGradient(prev.x, prev.y, curr.x, curr.y);
+      grad.addColorStop(0, rgbaStr(this.r, this.g, this.b, 0));
+      grad.addColorStop(1, rgbaStr(255, 255, 220, 1));
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = this.streamWidth * (0.3 + tp * 0.7);
+      ctx.beginPath();
+      ctx.moveTo(prev.x, prev.y);
+      ctx.lineTo(curr.x, curr.y);
+      ctx.stroke();
+    }
+
+    // Head glow
+    ctx.globalAlpha = this.alpha;
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = rgbaStr(255, 255, 200, this.alpha);
+    const headGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.streamWidth * 4);
+    headGrad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+    headGrad.addColorStop(0.5, rgbaStr(this.r, this.g, this.b, 0.6));
+    headGrad.addColorStop(1, rgbaStr(255, 220, 100, 0));
+    ctx.fillStyle = headGrad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.streamWidth * 4, 0, TWO_PI);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// HOLY COLUMN (pillar of divine light from sky)
+// ============================================================
+
+class HolyColumn {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.targetY = 0;
+    this.width = 0;
+    this.maxWidth = 0;
+    this.life = 1;
+    this.age = 0;
+    this.maxLife = 0;
+    this.alpha = 0;
+    this.innerParticles = [];
+    this.columnHeight = 0;
+    this.pulseTimer = 0;
+    this.beamGlowTimer = 0;
+    this.stretchAmt = 0;
+    this.ringAngle = 0;
+    this.beamlines = [];
+    this.numBeamlines = 12;
+  }
+
+  init(x, y) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.targetY = y;
+    this.width = randFloat(80, 160);
+    this.maxWidth = this.width * randFloat(2.5, 4.0);
+    this.age = 0;
+    this.maxLife = randFloat(1.8, 3.2);
+    this.columnHeight = H + 200;
+    this.pulseTimer = 0;
+    this.beamGlowTimer = 0;
+    this.stretchAmt = randFloat(0.8, 1.3);
+    this.ringAngle = 0;
+    this.alpha = 0;
+
+    this.beamlines = [];
+    for (let i = 0; i < this.numBeamlines; i++) {
+      this.beamlines.push({
+        offsetX: randFloat(-this.width * 0.4, this.width * 0.4),
+        width: randFloat(1, 4),
+        speed: randFloat(0.5, 2.5),
+        alpha: randFloat(0.3, 0.9),
+        phase: Math.random() * TWO_PI,
+        color: Math.random() > 0.5 ? [255, 255, 200] : [255, 240, 120]
+      });
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (this.age >= this.maxLife) { this.active = false; return; }
+    this.pulseTimer += dt;
+    this.beamGlowTimer += dt;
+    this.ringAngle += dt * 2.5;
+
+    const p = this.age / this.maxLife;
+    if (p < 0.08) {
+      this.alpha = lerp(0, 1, p / 0.08);
+      this.width = lerp(0, this.maxWidth * 0.6, easeOutCubic(p / 0.08));
+    } else if (p < 0.25) {
+      this.alpha = 1;
+      this.width = lerp(this.maxWidth * 0.6, this.maxWidth, easeOutQuad((p - 0.08) / 0.17));
+    } else if (p > 0.75) {
+      this.alpha = lerp(1, 0, (p - 0.75) / 0.25);
+      this.width = lerp(this.maxWidth, 0, easeInQuad((p - 0.75) / 0.25));
+    } else {
+      this.alpha = 1;
+    }
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005) return;
+
+    const pulse = 1 + 0.08 * Math.sin(this.pulseTimer * 8);
+    const w = this.width * pulse;
+    const topY = -200;
+    const bottomY = this.y;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Outer wide glow column
+    const outerGrad = ctx.createLinearGradient(this.x - w * 3, 0, this.x + w * 3, 0);
+    outerGrad.addColorStop(0, rgbaStr(255, 200, 50, 0));
+    outerGrad.addColorStop(0.35, rgbaStr(255, 230, 100, this.alpha * 0.08));
+    outerGrad.addColorStop(0.5, rgbaStr(255, 255, 180, this.alpha * 0.15));
+    outerGrad.addColorStop(0.65, rgbaStr(255, 230, 100, this.alpha * 0.08));
+    outerGrad.addColorStop(1, rgbaStr(255, 200, 50, 0));
+    ctx.fillStyle = outerGrad;
+    ctx.fillRect(this.x - w * 3, topY, w * 6, this.columnHeight + 200);
+
+    // Mid glow column
+    const midGrad = ctx.createLinearGradient(this.x - w * 1.2, 0, this.x + w * 1.2, 0);
+    midGrad.addColorStop(0, rgbaStr(255, 220, 80, 0));
+    midGrad.addColorStop(0.3, rgbaStr(255, 240, 120, this.alpha * 0.2));
+    midGrad.addColorStop(0.5, rgbaStr(255, 255, 220, this.alpha * 0.5));
+    midGrad.addColorStop(0.7, rgbaStr(255, 240, 120, this.alpha * 0.2));
+    midGrad.addColorStop(1, rgbaStr(255, 220, 80, 0));
+    ctx.fillStyle = midGrad;
+    ctx.fillRect(this.x - w * 1.2, topY, w * 2.4, this.columnHeight + 200);
+
+    // Core beam
+    const coreGrad = ctx.createLinearGradient(this.x - w * 0.4, 0, this.x + w * 0.4, 0);
+    coreGrad.addColorStop(0, rgbaStr(255, 255, 200, 0));
+    coreGrad.addColorStop(0.2, rgbaStr(255, 255, 230, this.alpha * 0.7));
+    coreGrad.addColorStop(0.5, rgbaStr(255, 255, 255, this.alpha * 1.0));
+    coreGrad.addColorStop(0.8, rgbaStr(255, 255, 230, this.alpha * 0.7));
+    coreGrad.addColorStop(1, rgbaStr(255, 255, 200, 0));
+    ctx.shadowBlur = 40;
+    ctx.shadowColor = rgbaStr(255, 255, 200, this.alpha * 0.8);
+    ctx.fillStyle = coreGrad;
+    ctx.fillRect(this.x - w * 0.4, topY, w * 0.8, this.columnHeight + 200);
+
+    // Individual beam lines
+    for (let i = 0; i < this.beamlines.length; i++) {
+      const bl = this.beamlines[i];
+      const bx = this.x + bl.offsetX + Math.sin(this.beamGlowTimer * bl.speed + bl.phase) * 5;
+      const bAlpha = bl.alpha * this.alpha * (0.7 + 0.3 * Math.sin(this.beamGlowTimer * bl.speed * 2 + bl.phase));
+      ctx.globalAlpha = bAlpha;
+      ctx.shadowBlur = bl.width * 8;
+      ctx.shadowColor = rgbaStr(bl.color[0], bl.color[1], bl.color[2], bAlpha);
+      ctx.strokeStyle = rgbaStr(bl.color[0], bl.color[1], bl.color[2], bAlpha);
+      ctx.lineWidth = bl.width;
+      ctx.beginPath();
+      ctx.moveTo(bx, topY);
+      ctx.lineTo(bx, bottomY);
+      ctx.stroke();
+    }
+
+    // Ground impact circle
+    const impactPulse = 1 + 0.15 * Math.sin(this.pulseTimer * 10);
+    const impactR = w * 1.8 * impactPulse;
+    ctx.globalAlpha = this.alpha * 0.6;
+    ctx.shadowBlur = 60;
+    ctx.shadowColor = rgbaStr(255, 240, 120, this.alpha);
+    const impactGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, impactR);
+    impactGrad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+    impactGrad.addColorStop(0.3, rgbaStr(255, 255, 200, 0.8));
+    impactGrad.addColorStop(0.6, rgbaStr(255, 220, 80, 0.4));
+    impactGrad.addColorStop(1, rgbaStr(255, 180, 30, 0));
+    ctx.fillStyle = impactGrad;
+    ctx.beginPath();
+    ctx.ellipse(this.x, this.y, impactR, impactR * 0.3, 0, 0, TWO_PI);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// SMOKE PARTICLE
+// ============================================================
+
+class SmokeParticle extends BaseParticle {
+  constructor() {
+    super();
+    this.baseSize = 20;
+    this.noiseX = 0;
+    this.noiseY = 0;
+    this.noiseSpeed = 0;
+    this.noiseTimer = 0;
+    this.expandRate = 1;
+    this.type = 0; // 0=large, 1=small, 2=rolling
+  }
+
+  init(x, y, options = {}) {
+    this.reset();
+    this.active = true;
+    this.x = x;
+    this.y = y;
+
+    this.type = options.type !== undefined ? options.type : randInt(0, 2);
+
+    const speed = this.type === 0 ? randFloat(10, 50) : this.type === 1 ? randFloat(30, 90) : randFloat(20, 70);
+    const angle = randFloat(-Math.PI - 0.5, -Math.PI * 0.0 + 0.5);
+    this.vx = Math.cos(angle) * speed + randFloat(-20, 20);
+    this.vy = Math.sin(angle) * speed - randFloat(20, 60);
+    this.ay = randFloat(-30, -10);
+    this.drag = randFloat(0.97, 0.995);
+
+    switch (this.type) {
+      case 0:
+        this.maxLife = randFloat(2.0, 4.5);
+        this.baseSize = randFloat(40, 100);
+        this.expandRate = randFloat(1.5, 2.5);
+        break;
+      case 1:
+        this.maxLife = randFloat(1.0, 2.5);
+        this.baseSize = randFloat(15, 40);
+        this.expandRate = randFloat(2.0, 3.5);
+        break;
+      case 2:
+        this.maxLife = randFloat(1.5, 3.5);
+        this.baseSize = randFloat(30, 80);
+        this.expandRate = randFloat(1.8, 3.0);
+        break;
+    }
+
+    this.size = this.baseSize * 0.1;
+    this.noiseX = randFloat(-30, 30);
+    this.noiseY = randFloat(-10, 10);
+    this.noiseSpeed = randFloat(1, 3);
+    this.noiseTimer = Math.random() * TWO_PI;
+    this.rotSpeed = randFloat(-0.5, 0.5);
+
+    const gray = randInt(30, 80);
+    this.r = gray;
+    this.g = gray * 0.9 | 0;
+    this.b = gray * 0.8 | 0;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.noiseTimer += dt;
+    this.ax = this.noiseX * Math.sin(this.noiseTimer * this.noiseSpeed);
+    super.update(dt);
+
+    const p = this.progress;
+    this.size = this.baseSize * Math.min(1, p * this.expandRate * 2);
+
+    if (p < 0.1) {
+      this.alpha = lerp(0, 0.4, p / 0.1);
+    } else if (p > 0.6) {
+      this.alpha = lerp(0.4, 0, (p - 0.6) / 0.4);
+    } else {
+      this.alpha = 0.4;
+    }
+    this.alpha = clamp(this.alpha, 0, 1);
+
+    // Smoke brightens then darkens
+    if (p < 0.2) {
+      const t = p / 0.2;
+      this.r = lerp(120, 60, t) | 0;
+      this.g = lerp(100, 55, t) | 0;
+      this.b = lerp(80, 50, t) | 0;
+    } else {
+      this.r = 50; this.g = 45; this.b = 40;
+    }
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.size <= 1) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation);
+
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size);
+    grad.addColorStop(0, rgbaStr(this.r, this.g, this.b, this.alpha * 0.8));
+    grad.addColorStop(0.5, rgbaStr(this.r, this.g, this.b, this.alpha * 0.5));
+    grad.addColorStop(0.8, rgbaStr(this.r, this.g, this.b, this.alpha * 0.2));
+    grad.addColorStop(1, rgbaStr(this.r, this.g, this.b, 0));
+
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.size, 0, TWO_PI);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// SMOKE LAYER (large background atmospheric cloud)
+// ============================================================
+
+class SmokeLayer {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.vx = 0;
+    this.vy = 0;
+    this.size = 100;
+    this.maxSize = 300;
+    this.alpha = 0;
+    this.age = 0;
+    this.maxLife = 5;
+    this.rotation = 0;
+    this.rotSpeed = 0;
+    this.scaleX = 1;
+    this.scaleY = 1;
+    this.r = 50;
+    this.g = 45;
+    this.b = 40;
+  }
+
+  init(x, y) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.vx = randFloat(-15, 15);
+    this.vy = randFloat(-25, -5);
+    this.size = randFloat(60, 120);
+    this.maxSize = randFloat(200, 500);
+    this.age = 0;
+    this.maxLife = randFloat(3, 6);
+    this.rotation = randAngle();
+    this.rotSpeed = randFloat(-0.3, 0.3);
+    this.scaleX = randFloat(1.2, 2.5);
+    this.scaleY = randFloat(0.5, 1.2);
+    const v = randInt(30, 70);
+    this.r = v;
+    this.g = v * 0.9 | 0;
+    this.b = v * 0.75 | 0;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (this.age >= this.maxLife) { this.active = false; return; }
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+    this.vx *= 0.995;
+    this.vy *= 0.995;
+    this.rotation += this.rotSpeed * dt;
+
+    const p = this.age / this.maxLife;
+    this.size = lerp(60, this.maxSize, easeOutQuad(Math.min(p * 3, 1)));
+
+    if (p < 0.1) {
+      this.alpha = lerp(0, 0.35, p / 0.1);
+    } else if (p > 0.55) {
+      this.alpha = lerp(0.35, 0, (p - 0.55) / 0.45);
+    } else {
+      this.alpha = 0.35;
+    }
+    this.alpha = clamp(this.alpha, 0, 1);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.size <= 1) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation);
+    ctx.scale(this.scaleX, this.scaleY);
+
+    const grad = ctx.createRadialGradient(0, 0, 0, 0, 0, this.size);
+    grad.addColorStop(0, rgbaStr(this.r, this.g, this.b, this.alpha * 0.9));
+    grad.addColorStop(0.4, rgbaStr(this.r, this.g, this.b, this.alpha * 0.6));
+    grad.addColorStop(0.7, rgbaStr(this.r, this.g, this.b, this.alpha * 0.3));
+    grad.addColorStop(1, rgbaStr(this.r, this.g, this.b, 0));
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.size, 0, TWO_PI);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// SHOCKWAVE
+// ============================================================
+
+class Shockwave {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.radius = 0;
+    this.maxRadius = 0;
+    this.age = 0;
+    this.maxLife = 0.8;
+    this.alpha = 0;
+    this.thickness = 12;
+    this.r = 255;
+    this.g = 200;
+    this.b = 80;
+    this.distortLines = [];
+    this.numDistortLines = 24;
+  }
+
+  init(x, y, options = {}) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.radius = 0;
+    this.maxRadius = options.maxRadius !== undefined ? options.maxRadius : randFloat(300, 600);
+    this.age = 0;
+    this.maxLife = randFloat(0.6, 1.0);
+    this.thickness = randFloat(8, 20);
+    this.alpha = 1;
+    this.r = options.r !== undefined ? options.r : 255;
+    this.g = options.g !== undefined ? options.g : randInt(180, 255);
+    this.b = options.b !== undefined ? options.b : randInt(40, 120);
+
+    this.distortLines = [];
+    for (let i = 0; i < this.numDistortLines; i++) {
+      this.distortLines.push({
+        angle: (i / this.numDistortLines) * TWO_PI + randFloat(-0.1, 0.1),
+        lengthMult: randFloat(0.8, 1.3),
+        width: randFloat(1, 3),
+        alpha: randFloat(0.5, 1.0)
+      });
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (this.age >= this.maxLife) { this.active = false; return; }
+
+    const p = this.age / this.maxLife;
+    this.radius = this.maxRadius * easeOutQuart(p);
+    this.alpha = p < 0.1 ? lerp(0, 1, p / 0.1) : Math.pow(1 - p, 1.5);
+    this.thickness = lerp(this.thickness, 1, p);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Main ring
+    ctx.globalAlpha = this.alpha;
+    ctx.shadowBlur = this.thickness * 4;
+    ctx.shadowColor = rgbaStr(this.r, this.g, this.b, this.alpha * 0.9);
+
+    ctx.strokeStyle = rgbaStr(this.r, this.g, this.b, this.alpha);
+    ctx.lineWidth = this.thickness;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, TWO_PI);
+    ctx.stroke();
+
+    // Inner bright ring
+    ctx.strokeStyle = rgbaStr(255, 255, 240, this.alpha * 0.7);
+    ctx.lineWidth = this.thickness * 0.3;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius * 0.98, 0, TWO_PI);
+    ctx.stroke();
+
+    // Radial distortion lines
+    for (const dl of this.distortLines) {
+      const innerR = this.radius * 0.88;
+      const outerR = this.radius * dl.lengthMult * 1.15;
+      const ix = this.x + Math.cos(dl.angle) * innerR;
+      const iy = this.y + Math.sin(dl.angle) * innerR;
+      const ox = this.x + Math.cos(dl.angle) * outerR;
+      const oy = this.y + Math.sin(dl.angle) * outerR;
+      ctx.globalAlpha = this.alpha * dl.alpha * 0.6;
+      ctx.shadowBlur = dl.width * 6;
+      ctx.shadowColor = rgbaStr(255, 240, 150, this.alpha * dl.alpha);
+      ctx.strokeStyle = rgbaStr(255, 255, 200, 1);
+      ctx.lineWidth = dl.width;
+      ctx.beginPath();
+      ctx.moveTo(ix, iy);
+      ctx.lineTo(ox, oy);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// SHOCKWAVE RING (multiple expanding rings)
+// ============================================================
+
+class ShockwaveRing {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.rings = [];
+  }
+
+  init(x, y) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.rings = [];
+    const numRings = randInt(3, 6);
+    for (let i = 0; i < numRings; i++) {
+      this.rings.push({
+        active: true,
+        radius: 0,
+        maxRadius: randFloat(200, 800),
+        age: 0,
+        delay: i * randFloat(0.04, 0.10),
+        maxLife: randFloat(0.5, 1.2),
+        thickness: randFloat(3, 14),
+        r: 255,
+        g: randInt(170, 255),
+        b: randInt(50, 150),
+        alpha: 0
+      });
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    let anyActive = false;
+    for (const ring of this.rings) {
+      if (!ring.active) continue;
+      ring.age += dt;
+      const effectiveAge = ring.age - ring.delay;
+      if (effectiveAge <= 0) { anyActive = true; continue; }
+      const p = effectiveAge / ring.maxLife;
+      if (p >= 1) { ring.active = false; continue; }
+      anyActive = true;
+      ring.radius = ring.maxRadius * easeOutCubic(p);
+      ring.alpha = p < 0.08 ? lerp(0, 1, p / 0.08) : Math.pow(1 - p, 2.5);
+      ring.thickness = lerp(ring.thickness, 0.5, p * 0.8);
+    }
+    if (!anyActive) this.active = false;
+  }
+
+  draw(ctx) {
+    if (!this.active) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    for (const ring of this.rings) {
+      if (!ring.active || ring.alpha <= 0.005 || ring.radius <= 0) continue;
+      ctx.globalAlpha = ring.alpha;
+      ctx.shadowBlur = ring.thickness * 5;
+      ctx.shadowColor = rgbaStr(ring.r, ring.g, ring.b, ring.alpha * 0.9);
+
+      // Gradient ring using arc stroke
+      ctx.strokeStyle = rgbaStr(ring.r, ring.g, ring.b, ring.alpha);
+      ctx.lineWidth = ring.thickness;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, ring.radius, 0, TWO_PI);
+      ctx.stroke();
+
+      // Bright inner edge
+      ctx.strokeStyle = rgbaStr(255, 255, 255, ring.alpha * 0.5);
+      ctx.lineWidth = ring.thickness * 0.2;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, ring.radius - ring.thickness * 0.3, 0, TWO_PI);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// FLASH EFFECT (instantaneous bright flash with cross)
+// ============================================================
+
+class FlashEffect {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.age = 0;
+    this.maxLife = 0.35;
+    this.alpha = 0;
+    this.radius = 0;
+    this.maxRadius = 0;
+    this.crossLength = 0;
+    this.crossWidth = 0;
+    this.numRays = 0;
+    this.rays = [];
+  }
+
+  init(x, y) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.age = 0;
+    this.maxLife = randFloat(0.25, 0.45);
+    this.maxRadius = randFloat(80, 200);
+    this.crossLength = this.maxRadius * randFloat(3, 6);
+    this.crossWidth = randFloat(4, 12);
+    this.numRays = randInt(6, 16);
+    this.rays = [];
+    for (let i = 0; i < this.numRays; i++) {
+      this.rays.push({
+        angle: (i / this.numRays) * TWO_PI + randFloat(-0.15, 0.15),
+        length: this.crossLength * randFloat(0.3, 1.2),
+        width: randFloat(1, 5),
+        alpha: randFloat(0.4, 1.0)
+      });
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (this.age >= this.maxLife) { this.active = false; return; }
+    const p = this.age / this.maxLife;
+    this.radius = this.maxRadius * easeOutQuart(p);
+    this.alpha = p < 0.08 ? lerp(0, 1, p / 0.08) : Math.pow(1 - p, 2.0);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Core bright circle
+    ctx.globalAlpha = this.alpha;
+    ctx.shadowBlur = this.radius * 3;
+    ctx.shadowColor = rgbaStr(255, 255, 200, this.alpha);
+    const coreGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+    coreGrad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+    coreGrad.addColorStop(0.3, rgbaStr(255, 255, 220, 0.9));
+    coreGrad.addColorStop(0.7, rgbaStr(255, 220, 100, 0.5));
+    coreGrad.addColorStop(1, rgbaStr(255, 180, 50, 0));
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, TWO_PI);
+    ctx.fill();
+
+    // Radial rays / cross streaks
+    ctx.lineCap = 'round';
+    for (const ray of this.rays) {
+      const ex = this.x + Math.cos(ray.angle) * ray.length * this.alpha;
+      const ey = this.y + Math.sin(ray.angle) * ray.length * this.alpha;
+      const rayAlpha = this.alpha * ray.alpha;
+      ctx.globalAlpha = rayAlpha;
+      ctx.shadowBlur = ray.width * 8;
+      ctx.shadowColor = rgbaStr(255, 250, 200, rayAlpha);
+      const grad = ctx.createLinearGradient(this.x, this.y, ex, ey);
+      grad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+      grad.addColorStop(0.3, rgbaStr(255, 255, 200, 0.8));
+      grad.addColorStop(1, rgbaStr(255, 200, 80, 0));
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = ray.width;
+      ctx.beginPath();
+      ctx.moveTo(this.x, this.y);
+      ctx.lineTo(ex, ey);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// EXPLOSION CORE
+// ============================================================
+
+class ExplosionCore {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.age = 0;
+    this.maxLife = 0;
+    this.alpha = 0;
+    this.coreRadius = 0;
+    this.maxCoreRadius = 0;
+    this.haloRadius = 0;
+    this.maxHaloRadius = 0;
+    this.pulseTimer = 0;
+    this.detailRings = [];
+    this.numDetailRings = 5;
+    this.energyBands = [];
+    this.numEnergyBands = 8;
+    this.innerRotation = 0;
+    this.outerRotation = 0;
+  }
+
+  init(x, y) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.age = 0;
+    this.maxLife = randFloat(1.5, 2.5);
+    this.maxCoreRadius = randFloat(60, 120);
+    this.maxHaloRadius = randFloat(200, 400);
+    this.coreRadius = 0;
+    this.haloRadius = 0;
+    this.pulseTimer = 0;
+    this.innerRotation = 0;
+    this.outerRotation = 0;
+
+    this.detailRings = [];
+    for (let i = 0; i < this.numDetailRings; i++) {
+      this.detailRings.push({
+        radiusMult: 0.3 + i * 0.15,
+        alpha: randFloat(0.4, 0.9),
+        thickness: randFloat(2, 8),
+        r: 255,
+        g: randInt(100, 255),
+        b: randInt(0, 60),
+        rotation: randAngle(),
+        rotSpeed: randFloat(-1.5, 1.5),
+        segments: randInt(6, 12)
+      });
+    }
+
+    this.energyBands = [];
+    for (let i = 0; i < this.numEnergyBands; i++) {
+      this.energyBands.push({
+        angle: (i / this.numEnergyBands) * TWO_PI,
+        width: randFloat(8, 25),
+        length: randFloat(0.6, 1.0),
+        alpha: randFloat(0.6, 1.0),
+        speed: randFloat(1, 3) * (Math.random() > 0.5 ? 1 : -1)
+      });
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (this.age >= this.maxLife) { this.active = false; return; }
+    this.pulseTimer += dt;
+    this.innerRotation += dt * 1.8;
+    this.outerRotation -= dt * 0.9;
+
+    const p = this.age / this.maxLife;
+    const pulse = 1 + 0.12 * Math.sin(this.pulseTimer * 12);
+
+    if (p < 0.1) {
+      this.coreRadius = this.maxCoreRadius * easeOutQuart(p / 0.1) * pulse;
+      this.haloRadius = this.maxHaloRadius * easeOutCubic(p / 0.1) * pulse;
+    } else if (p < 0.4) {
+      this.coreRadius = this.maxCoreRadius * (1.0 + 0.1 * Math.sin(this.pulseTimer * 8)) * pulse;
+      this.haloRadius = this.maxHaloRadius * lerp(1, 1.15, (p - 0.1) / 0.3) * pulse;
+    } else {
+      this.coreRadius = this.maxCoreRadius * lerp(1, 0, easeInQuad((p - 0.4) / 0.6)) * pulse;
+      this.haloRadius = this.maxHaloRadius * lerp(1.15, 0, easeInQuad((p - 0.4) / 0.6)) * pulse;
+    }
+
+    if (p < 0.1) {
+      this.alpha = lerp(0, 1, p / 0.1);
+    } else if (p > 0.5) {
+      this.alpha = lerp(1, 0, (p - 0.5) / 0.5);
+    } else {
+      this.alpha = 1;
+    }
+
+    for (const eb of this.energyBands) {
+      eb.angle += eb.speed * dt;
+    }
+    for (const dr of this.detailRings) {
+      dr.rotation += dr.rotSpeed * dt;
+    }
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = this.alpha;
+
+    // Outer halo
+    if (this.haloRadius > 1) {
+      ctx.shadowBlur = this.haloRadius * 0.8;
+      ctx.shadowColor = rgbaStr(255, 180, 30, this.alpha * 0.5);
+      const haloGrad = ctx.createRadialGradient(this.x, this.y, this.coreRadius * 0.5, this.x, this.y, this.haloRadius);
+      haloGrad.addColorStop(0, rgbaStr(255, 220, 80, 0.6));
+      haloGrad.addColorStop(0.3, rgbaStr(255, 160, 20, 0.4));
+      haloGrad.addColorStop(0.6, rgbaStr(200, 60, 0, 0.2));
+      haloGrad.addColorStop(1, rgbaStr(100, 0, 0, 0));
+      ctx.fillStyle = haloGrad;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.haloRadius, 0, TWO_PI);
+      ctx.fill();
+    }
+
+    // Energy bands
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.innerRotation);
+    for (const eb of this.energyBands) {
+      const r1 = this.coreRadius * 0.6;
+      const r2 = this.haloRadius * eb.length;
+      if (r2 <= 0) continue;
+      const bandAlpha = this.alpha * eb.alpha * 0.4;
+      ctx.globalAlpha = bandAlpha;
+      ctx.shadowBlur = eb.width * 3;
+      ctx.shadowColor = rgbaStr(255, 200, 50, bandAlpha);
+      const bx1 = Math.cos(eb.angle) * r1;
+      const by1 = Math.sin(eb.angle) * r1;
+      const bx2 = Math.cos(eb.angle) * r2;
+      const by2 = Math.sin(eb.angle) * r2;
+      const grad = ctx.createLinearGradient(bx1, by1, bx2, by2);
+      grad.addColorStop(0, rgbaStr(255, 255, 200, 1));
+      grad.addColorStop(0.5, rgbaStr(255, 180, 30, 0.7));
+      grad.addColorStop(1, rgbaStr(200, 60, 0, 0));
+      ctx.strokeStyle = grad;
+      ctx.lineWidth = eb.width;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(bx1, by1);
+      ctx.lineTo(bx2, by2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Detail rings
+    for (const dr of this.detailRings) {
+      const r = this.haloRadius * dr.radiusMult;
+      if (r <= 0) continue;
+      ctx.globalAlpha = this.alpha * dr.alpha;
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(dr.rotation);
+      ctx.shadowBlur = dr.thickness * 3;
+      ctx.shadowColor = rgbaStr(dr.r, dr.g, dr.b, this.alpha * dr.alpha);
+      ctx.strokeStyle = rgbaStr(dr.r, dr.g, dr.b, this.alpha * dr.alpha);
+      ctx.lineWidth = dr.thickness;
+      // Dashed ring
+      const segAngle = TWO_PI / dr.segments;
+      for (let s = 0; s < dr.segments; s++) {
+        if (s % 2 === 0) {
+          ctx.beginPath();
+          ctx.arc(0, 0, r, s * segAngle, (s + 0.7) * segAngle);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    }
+
+    // Core fireball
+    if (this.coreRadius > 0.5) {
+      ctx.globalAlpha = this.alpha;
+      ctx.shadowBlur = this.coreRadius * 3;
+      ctx.shadowColor = rgbaStr(255, 255, 200, this.alpha);
+      const coreGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.coreRadius);
+      coreGrad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+      coreGrad.addColorStop(0.2, rgbaStr(255, 255, 220, 1));
+      coreGrad.addColorStop(0.5, rgbaStr(255, 220, 80, 0.9));
+      coreGrad.addColorStop(0.75, rgbaStr(255, 130, 10, 0.7));
+      coreGrad.addColorStop(1, rgbaStr(200, 30, 0, 0));
+      ctx.fillStyle = coreGrad;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.coreRadius, 0, TWO_PI);
+      ctx.fill();
+    }
+
+    // White-hot center
+    ctx.globalAlpha = this.alpha * 0.9;
+    ctx.shadowBlur = this.coreRadius;
+    const hotGrad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.coreRadius * 0.35);
+    hotGrad.addColorStop(0, rgbaStr(255, 255, 255, 1));
+    hotGrad.addColorStop(0.6, rgbaStr(255, 255, 240, 0.8));
+    hotGrad.addColorStop(1, rgbaStr(255, 255, 200, 0));
+    ctx.fillStyle = hotGrad;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.coreRadius * 0.35, 0, TWO_PI);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// CAMERA SHAKE
+// ============================================================
+
+class CameraShake {
+  constructor() {
+    this.active = false;
+    this.age = 0;
+    this.maxLife = 0;
+    this.intensity = 0;
+    this.offsetX = 0;
+    this.offsetY = 0;
+    this.frequency = 0;
+    this.decayRate = 0;
+    this.traumaTimer = 0;
+    this.trauma = 0;
+    this.pendingShakes = [];
+  }
+
+  addShake(intensity, duration) {
+    this.pendingShakes.push({ intensity, duration, age: 0 });
+  }
+
+  update(dt) {
+    // Process pending shakes - accumulate the strongest one
+    let maxIntensity = 0;
+    let totalDuration = 0;
+    this.pendingShakes = this.pendingShakes.filter(ps => {
+      ps.age += dt;
+      const p = ps.age / ps.duration;
+      if (p >= 1) return false;
+      const currentIntensity = ps.intensity * Math.pow(1 - p, 1.5);
+      if (currentIntensity > maxIntensity) {
+        maxIntensity = currentIntensity;
+        totalDuration = ps.duration;
+      }
+      return true;
+    });
+
+    if (maxIntensity > 0) {
+      // Use simplex-like noise with multiple octaves
+      const t = Date.now() * 0.01;
+      const noiseX = Math.sin(t * 37.8) * Math.cos(t * 22.3) * Math.sin(t * 11.1);
+      const noiseY = Math.cos(t * 44.1) * Math.sin(t * 18.7) * Math.cos(t * 9.4);
+      const noiseX2 = Math.sin(t * 7.3 + 1.1) * 0.5;
+      const noiseY2 = Math.cos(t * 6.8 + 2.2) * 0.5;
+      this.offsetX = (noiseX + noiseX2) * maxIntensity;
+      this.offsetY = (noiseY + noiseY2) * maxIntensity;
+    } else {
+      // Smooth decay to zero
+      this.offsetX *= 0.85;
+      this.offsetY *= 0.85;
+      if (Math.abs(this.offsetX) < 0.1) this.offsetX = 0;
+      if (Math.abs(this.offsetY) < 0.1) this.offsetY = 0;
+    }
+  }
+
+  apply(ctx) {
+    if (this.offsetX !== 0 || this.offsetY !== 0) {
+      ctx.translate(this.offsetX, this.offsetY);
+    }
+  }
+}
+
+// ============================================================
+// SCREEN FLASH
+// ============================================================
+
+class ScreenFlash {
+  constructor() {
+    this.active = false;
+    this.age = 0;
+    this.maxLife = 0;
+    this.alpha = 0;
+    this.r = 255;
+    this.g = 255;
+    this.b = 255;
+  }
+
+  flash(r, g, b, duration) {
+    this.active = true;
+    this.age = 0;
+    this.maxLife = duration !== undefined ? duration : 0.3;
+    this.r = r !== undefined ? r : 255;
+    this.g = g !== undefined ? g : 240;
+    this.b = b !== undefined ? b : 180;
+    this.alpha = 1;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (this.age >= this.maxLife) {
+      this.active = false;
+      this.alpha = 0;
+      return;
+    }
+    const p = this.age / this.maxLife;
+    // Very fast rise, slow fade
+    this.alpha = p < 0.05 ? 1 : Math.pow(1 - p, 2.5);
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = this.alpha * 0.6;
+    ctx.fillStyle = rgbaStr(this.r, this.g, this.b, 1);
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// PARTICLE POOL
+// ============================================================
+
+class ParticlePool {
+  constructor(ParticleClass, maxSize) {
+    this.ParticleClass = ParticleClass;
+    this.maxSize = maxSize;
+    this.pool = [];
+    this.active = [];
+    // Pre-allocate pool
+    for (let i = 0; i < maxSize; i++) {
+      this.pool.push(new ParticleClass());
+    }
+  }
+
+  acquire() {
+    let particle = null;
+    if (this.pool.length > 0) {
+      particle = this.pool.pop();
+    } else if (this.active.length < this.maxSize * 2) {
+      // Only create new if under hard limit
+      particle = new this.ParticleClass();
+    } else {
+      // Recycle oldest active particle
+      particle = this.active.shift();
+      particle.reset();
+    }
+    if (particle) {
+      this.active.push(particle);
+    }
+    return particle;
+  }
+
+  release(particle) {
+    particle.active = false;
+    const idx = this.active.indexOf(particle);
+    if (idx !== -1) this.active.splice(idx, 1);
+    if (this.pool.length < this.maxSize) {
+      this.pool.push(particle);
+    }
+  }
+
+  update(dt) {
+    for (let i = this.active.length - 1; i >= 0; i--) {
+      const p = this.active[i];
+      p.update(dt);
+      if (!p.active) {
+        this.active.splice(i, 1);
+        if (this.pool.length < this.maxSize) {
+          this.pool.push(p);
+        }
+      }
+    }
+  }
+
+  draw(ctx) {
+    for (const p of this.active) {
+      p.draw(ctx);
+    }
+  }
+
+  get count() {
+    return this.active.length;
+  }
+
+  clear() {
+    for (const p of this.active) {
+      p.active = false;
+      if (this.pool.length < this.maxSize) this.pool.push(p);
+    }
+    this.active.length = 0;
+  }
+}
+
+// ============================================================
+// PARTICLE EMITTER
+// ============================================================
+
+class ParticleEmitter {
+  constructor(pools) {
+    this.pools = pools;
+    this.emitQueue = [];
+    this.continuousEmitters = [];
+  }
+
+  emitFlame(x, y, count, options = {}) {
+    const pool = this.pools.flame;
+    for (let i = 0; i < count; i++) {
+      const p = pool.acquire();
+      if (!p) continue;
+      const angle = options.angle !== undefined
+        ? options.angle + randFloat(-options.spread || -Math.PI, options.spread || Math.PI)
+        : randAngle();
+      p.init(x + randFloat(-20, 20), y + randFloat(-20, 20), {
+        angle,
+        speed: options.speed || randFloat(60, 200),
+        size: options.size || randFloat(10, 35),
+        colorPhase: options.colorPhase || randFloat(0, 0.5),
+        gravity: options.gravity || -120
+      });
+    }
+  }
+
+  emitOuterFlame(x, y, count, options = {}) {
+    const pool = this.pools.outerFlame;
+    for (let i = 0; i < count; i++) {
+      const p = pool.acquire();
+      if (!p) continue;
+      p.init(x + randFloat(-30, 30), y + randFloat(-30, 30), options);
+    }
+  }
+
+  emitFireTrail(x, y, count, options = {}) {
+    const pool = this.pools.fireTrail;
+    for (let i = 0; i < count; i++) {
+      const p = pool.acquire();
+      if (!p) continue;
+      p.init(x, y, {
+        angle: options.angle !== undefined ? options.angle : randAngle(),
+        speed: options.speed || randFloat(200, 500)
+      });
+    }
+  }
+
+  emitSpark(x, y, count, options = {}) {
+    const pool = this.pools.spark;
+    for (let i = 0; i < count; i++) {
+      const p = pool.acquire();
+      if (!p) continue;
+      const spreadAngle = options.angle !== undefined
+        ? options.angle + randFloat(-(options.spread || Math.PI), options.spread || Math.PI)
+        : randAngle();
+      p.init(x + randFloat(-15, 15), y + randFloat(-15, 15), {
+        angle: spreadAngle,
+        speed: randFloat(200, 700),
+        colorMode: options.colorMode || randInt(0, 1)
+      });
+    }
+  }
+
+  emitEmber(x, y, count, options = {}) {
+    const pool = this.pools.ember;
+    for (let i = 0; i < count; i++) {
+      const p = pool.acquire();
+      if (!p) continue;
+      p.init(x + randFloat(-40, 40), y + randFloat(-40, 40), options);
+    }
+  }
+
+  emitHoly(x, y, count, options = {}) {
+    const pool = this.pools.holy;
+    for (let i = 0; i < count; i++) {
+      const p = pool.acquire();
+      if (!p) continue;
+      p.init(x + randFloat(-50, 50), y + randFloat(-50, 50), options);
+    }
+  }
+
+  emitHolyTrail(x, y, count, options = {}) {
+    const pool = this.pools.holyTrail;
+    for (let i = 0; i < count; i++) {
+      const p = pool.acquire();
+      if (!p) continue;
+      p.init(x + randFloat(-30, 30), y + randFloat(-30, 30), options);
+    }
+  }
+
+  emitSmoke(x, y, count, options = {}) {
+    const pool = this.pools.smoke;
+    for (let i = 0; i < count; i++) {
+      const p = pool.acquire();
+      if (!p) continue;
+      p.init(x + randFloat(-50, 50), y + randFloat(-10, 10), {
+        type: options.type !== undefined ? options.type : randInt(0, 2)
+      });
+    }
+  }
+}
+
+// ============================================================
+// PARTICLE RENDERER
+// ============================================================
+
+class ParticleRenderer {
+  constructor(ctx) {
+    this.ctx = ctx;
+    this.renderPasses = 3;  // Multiple render passes for bloom simulation
+  }
+
+  renderPool(pool, passAlphaMult) {
+    if (passAlphaMult !== undefined) {
+      const originalDraw = pool.active;
+      for (const p of pool.active) {
+        const origAlpha = p.alpha;
+        p.alpha = clamp(p.alpha * passAlphaMult, 0, 1);
+        p.draw(this.ctx);
+        p.alpha = origAlpha;
+      }
+    } else {
+      pool.draw(this.ctx);
+    }
+  }
+
+  // Render smoke under everything else
+  renderSmoke(smokePool, smokeLayerPool) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    smokeLayerPool.draw(this.ctx);
+    smokePool.draw(this.ctx);
+    ctx.restore();
+  }
+
+  // Full multi-pass render for bloom effect
+  renderBloom(pools) {
+    // Pass 1: Normal render
+    for (const key of Object.keys(pools)) {
+      if (key !== 'smoke' && key !== 'smokeLayer') {
+        pools[key].draw(this.ctx);
+      }
+    }
+    // Pass 2: Additive bright pass (simulate bloom accumulation)
+    this.ctx.save();
+    this.ctx.globalCompositeOperation = 'lighter';
+    this.ctx.globalAlpha = 0.15;
+    for (const key of Object.keys(pools)) {
+      if (key !== 'smoke' && key !== 'smokeLayer') {
+        for (const p of pools[key].active) {
+          if (p.alpha > 0.5) {
+            const origAlpha = p.alpha;
+            p.alpha = Math.min(1, p.alpha * 0.5);
+            p.draw(this.ctx);
+            p.alpha = origAlpha;
+          }
+        }
+      }
+    }
+    this.ctx.restore();
+  }
+}
+
+// ============================================================
+// EXPLOSION MANAGER
+// ============================================================
+
+class ExplosionManager {
+  constructor() {
+    // Create pools for all particle types
+    this.pools = {
+      flame:      new ParticlePool(FlameParticle,       800),
+      outerFlame: new ParticlePool(OuterFlameParticle,  300),
+      fireTrail:  new ParticlePool(FireTrailParticle,   400),
+      spark:      new ParticlePool(SparkParticle,       700),
+      ember:      new ParticlePool(EmberParticle,       400),
+      holy:       new ParticlePool(HolyParticle,        400),
+      holyTrail:  new ParticlePool(HolyTrailParticle,   300),
+      smoke:      new ParticlePool(SmokeParticle,       200),
+    };
+
+    this.emitter = new ParticleEmitter(this.pools);
+    this.renderer = new ParticleRenderer(ctx);
+    this.cameraShake = new CameraShake();
+    this.screenFlash = new ScreenFlash();
+
+    // Non-pooled effect objects (limited instances)
+    this.shockwaves = [];
+    this.shockwaveRings = [];
+    this.flashEffects = [];
+    this.explosionCores = [];
+    this.holyColumns = [];
+    this.smokeLayerPool = new ParticlePool(SmokeLayer, 50);
+
+    // Deferred emission waves for staggered bursts
+    this.deferredEmissions = [];
+
+    // Aftershock system
+    this.aftershocks = [];
+  }
+
+  triggerExplosion(x, y) {
+    // === SCREEN FLASH ===
+    this.screenFlash.flash(255, 240, 180, 0.4);
+
+    // === CAMERA SHAKE ===
+    this.cameraShake.addShake(randFloat(18, 28), randFloat(0.6, 1.0));
+
+    // === EXPLOSION CORE ===
+    const core = new ExplosionCore();
+    core.init(x, y);
+    this.explosionCores.push(core);
+
+    // === HOLY COLUMN ===
+    const col = new HolyColumn();
+    col.init(x, y);
+    this.holyColumns.push(col);
+
+    // Second column slightly offset
+    if (Math.random() > 0.4) {
+      const col2 = new HolyColumn();
+      col2.init(x + randFloat(-60, 60), y + randFloat(-20, 20));
+      this.holyColumns.push(col2);
+    }
+
+    // === SHOCKWAVES ===
+    for (let w = 0; w < 3; w++) {
+      const sw = new Shockwave();
+      sw.init(x, y, {
+        maxRadius: randFloat(250, 550) + w * 100,
+        r: 255,
+        g: 200 - w * 30,
+        b: 60 + w * 20
+      });
+      this.shockwaves.push(sw);
+    }
+
+    // === SHOCKWAVE RINGS ===
+    const swr = new ShockwaveRing();
+    swr.init(x, y);
+    this.shockwaveRings.push(swr);
+
+    // === FLASH EFFECT (cross/star burst) ===
+    for (let f = 0; f < 2; f++) {
+      const flash = new FlashEffect();
+      flash.init(x + randFloat(-10, 10), y + randFloat(-10, 10));
+      this.flashEffects.push(flash);
+    }
+
+    // === SMOKE LAYERS ===
+    for (let s = 0; s < 8; s++) {
+      const sl = this.smokeLayerPool.acquire();
+      if (sl) sl.init(x + randFloat(-80, 80), y + randFloat(-40, 20));
+    }
+
+    // === IMMEDIATE PARTICLE BURST ===
+
+    // FLAME CORE - dense upward burst
+    this.emitter.emitFlame(x, y, 200, { speed: randFloat(100, 280), colorPhase: 0 });
+    // FLAME RING - outward ring
+    for (let a = 0; a < 60; a++) {
+      const angle = (a / 60) * TWO_PI;
+      const p = this.pools.flame.acquire();
+      if (p) p.init(x, y, { angle, speed: randFloat(100, 300), colorPhase: randFloat(0, 0.4) });
+    }
+
+    // OUTER FLAME - large billowing
+    this.emitter.emitOuterFlame(x, y, 80);
+
+    // FIRE TRAILS - streaking outward
+    this.emitter.emitFireTrail(x, y, 60, { speed: randFloat(250, 500) });
+
+    // SPARKS - high speed scatter
+    this.emitter.emitSpark(x, y, 200, { speed: randFloat(250, 700) });
+    // Extra holy-colored sparks
+    this.emitter.emitSpark(x, y, 100, { colorMode: 1 });
+
+    // EMBERS - slow drifting
+    this.emitter.emitEmber(x, y, 150);
+
+    // HOLY PARTICLES
+    this.emitter.emitHoly(x, y, 150);
+
+    // HOLY TRAILS
+    this.emitter.emitHolyTrail(x, y, 100);
+
+    // SMOKE
+    this.emitter.emitSmoke(x, y, 60, { type: 0 });
+    this.emitter.emitSmoke(x, y, 40, { type: 1 });
+    this.emitter.emitSmoke(x, y, 30, { type: 2 });
+
+    // === DEFERRED EMISSIONS (staggered waves) ===
+    // Wave 1: 0.05s - secondary ring burst
+    this.deferredEmissions.push({
+      delay: 0.05,
+      age: 0,
+      fired: false,
+      fn: () => {
+        this.emitter.emitFlame(x, y, 150, { speed: randFloat(150, 350) });
+        this.emitter.emitSpark(x, y, 100);
+        this.emitter.emitHoly(x, y, 80);
+        const sw2 = new Shockwave();
+        sw2.init(x, y, { maxRadius: randFloat(400, 700), r: 255, g: 230, b: 100 });
+        this.shockwaves.push(sw2);
+      }
+    });
+
+    // Wave 2: 0.1s - more outer particles
+    this.deferredEmissions.push({
+      delay: 0.10,
+      age: 0,
+      fired: false,
+      fn: () => {
+        this.emitter.emitOuterFlame(x, y, 60);
+        this.emitter.emitFireTrail(x, y, 40);
+        this.emitter.emitEmber(x, y, 80);
+        this.emitter.emitHolyTrail(x, y, 60);
+        this.screenFlash.flash(255, 220, 150, 0.2);
+      }
+    });
+
+    // Wave 3: 0.18s - holy ring explosion
+    this.deferredEmissions.push({
+      delay: 0.18,
+      age: 0,
+      fired: false,
+      fn: () => {
+        for (let a = 0; a < 36; a++) {
+          const angle = (a / 36) * TWO_PI;
+          const p = this.pools.holy.acquire();
+          if (p) p.init(x, y, { angle });
+          const sp = this.pools.spark.acquire();
+          if (sp) sp.init(x, y, { angle, speed: randFloat(180, 500), colorMode: 1 });
+        }
+        this.emitter.emitSpark(x, y, 80);
+        const flash2 = new FlashEffect();
+        flash2.init(x, y);
+        this.flashEffects.push(flash2);
+      }
+    });
+
+    // Wave 4: 0.28s - afterburn
+    this.deferredEmissions.push({
+      delay: 0.28,
+      age: 0,
+      fired: false,
+      fn: () => {
+        this.emitter.emitFlame(x, y, 80, { speed: randFloat(60, 160), colorPhase: 0.3 });
+        this.emitter.emitEmber(x, y, 60);
+        this.emitter.emitHoly(x, y, 60);
+        this.emitter.emitSmoke(x, y, 30, { type: 0 });
+      }
+    });
+
+    // Wave 5: 0.45s - final sparkle
+    this.deferredEmissions.push({
+      delay: 0.45,
+      age: 0,
+      fired: false,
+      fn: () => {
+        this.emitter.emitHoly(x, y, 40);
+        this.emitter.emitSpark(x, y, 60, { colorMode: 1 });
+        this.emitter.emitEmber(x, y, 40);
+        const swr2 = new ShockwaveRing();
+        swr2.init(x, y);
+        this.shockwaveRings.push(swr2);
+      }
+    });
+
+    // Wave 6: 0.65s - holy afterglow
+    this.deferredEmissions.push({
+      delay: 0.65,
+      age: 0,
+      fired: false,
+      fn: () => {
+        this.emitter.emitHolyTrail(x, y, 40);
+        this.emitter.emitHoly(x, y, 30);
+        this.emitter.emitEmber(x, y, 50);
+      }
+    });
+
+    // === AFTERSHOCKS ===
+    const numAftershocks = randInt(3, 6);
+    for (let i = 0; i < numAftershocks; i++) {
+      this.aftershocks.push({
+        x: x + randFloat(-120, 120),
+        y: y + randFloat(-60, 60),
+        delay: randFloat(0.15, 0.8),
+        age: 0,
+        fired: false,
+        intensity: randFloat(0.3, 0.7)
+      });
+    }
+  }
+
+  triggerMiniExplosion(x, y, intensity) {
+    // Smaller secondary explosion for aftershocks
+    this.emitter.emitFlame(x, y, Math.floor(80 * intensity));
+    this.emitter.emitSpark(x, y, Math.floor(60 * intensity));
+    this.emitter.emitEmber(x, y, Math.floor(40 * intensity));
+    this.emitter.emitHoly(x, y, Math.floor(30 * intensity));
+    this.emitter.emitFireTrail(x, y, Math.floor(20 * intensity));
+    this.cameraShake.addShake(intensity * 8, 0.3);
+
+    const sw = new Shockwave();
+    sw.init(x, y, { maxRadius: 150 + intensity * 150, r: 255, g: 200, b: 80 });
+    this.shockwaves.push(sw);
+
+    const flash = new FlashEffect();
+    flash.init(x, y);
+    this.flashEffects.push(flash);
+  }
+
+  update(dt) {
+    // Update camera shake
+    this.cameraShake.update(dt);
+
+    // Update screen flash
+    this.screenFlash.update(dt);
+
+    // Update deferred emissions
+    for (const de of this.deferredEmissions) {
+      if (de.fired) continue;
+      de.age += dt;
+      if (de.age >= de.delay) {
+        de.fired = true;
+        de.fn();
+      }
+    }
+    // Remove fired emissions
+    for (let i = this.deferredEmissions.length - 1; i >= 0; i--) {
+      if (this.deferredEmissions[i].fired) {
+        this.deferredEmissions.splice(i, 1);
+      }
+    }
+
+    // Update aftershocks
+    for (const as of this.aftershocks) {
+      if (as.fired) continue;
+      as.age += dt;
+      if (as.age >= as.delay) {
+        as.fired = true;
+        this.triggerMiniExplosion(as.x, as.y, as.intensity);
+      }
+    }
+    for (let i = this.aftershocks.length - 1; i >= 0; i--) {
+      if (this.aftershocks[i].fired) this.aftershocks.splice(i, 1);
+    }
+
+    // Update all particle pools
+    for (const key of Object.keys(this.pools)) {
+      this.pools[key].update(dt);
+    }
+    this.smokeLayerPool.update(dt);
+
+    // Update non-pooled effects
+    for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+      this.shockwaves[i].update(dt);
+      if (!this.shockwaves[i].active) this.shockwaves.splice(i, 1);
+    }
+    for (let i = this.shockwaveRings.length - 1; i >= 0; i--) {
+      this.shockwaveRings[i].update(dt);
+      if (!this.shockwaveRings[i].active) this.shockwaveRings.splice(i, 1);
+    }
+    for (let i = this.flashEffects.length - 1; i >= 0; i--) {
+      this.flashEffects[i].update(dt);
+      if (!this.flashEffects[i].active) this.flashEffects.splice(i, 1);
+    }
+    for (let i = this.explosionCores.length - 1; i >= 0; i--) {
+      this.explosionCores[i].update(dt);
+      if (!this.explosionCores[i].active) this.explosionCores.splice(i, 1);
+    }
+    for (let i = this.holyColumns.length - 1; i >= 0; i--) {
+      this.holyColumns[i].update(dt);
+      if (!this.holyColumns[i].active) this.holyColumns.splice(i, 1);
+    }
+  }
+
+  draw(ctx) {
+    ctx.save();
+
+    // Apply camera shake
+    this.cameraShake.apply(ctx);
+
+    // === RENDER ORDER (back to front) ===
+
+    // 1. Smoke layers (background)
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    this.smokeLayerPool.draw(ctx);
+    ctx.restore();
+
+    // 2. Holy columns (behind most effects, above smoke)
+    for (const col of this.holyColumns) col.draw(ctx);
+
+    // 3. Shockwave rings
+    for (const swr of this.shockwaveRings) swr.draw(ctx);
+
+    // 4. Shockwaves
+    for (const sw of this.shockwaves) sw.draw(ctx);
+
+    // 5. Outer flame
+    this.pools.outerFlame.draw(ctx);
+
+    // 6. Smoke particles
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    this.pools.smoke.draw(ctx);
+    ctx.restore();
+
+    // 7. Explosion cores
+    for (const ec of this.explosionCores) ec.draw(ctx);
+
+    // 8. Fire trails
+    this.pools.fireTrail.draw(ctx);
+
+    // 9. Main flame
+    this.pools.flame.draw(ctx);
+
+    // 10. Embers
+    this.pools.ember.draw(ctx);
+
+    // 11. Holy trail
+    this.pools.holyTrail.draw(ctx);
+
+    // 12. Holy particles
+    this.pools.holy.draw(ctx);
+
+    // 13. Sparks (on top, very bright)
+    this.pools.spark.draw(ctx);
+
+    // 14. Flash effects
+    for (const fe of this.flashEffects) fe.draw(ctx);
+
+    ctx.restore();
+
+    // 15. Screen flash (no camera shake applied)
+    this.screenFlash.draw(ctx);
+  }
+
+  get totalParticleCount() {
+    let count = 0;
+    for (const key of Object.keys(this.pools)) {
+      count += this.pools[key].count;
+    }
+    count += this.smokeLayerPool.count;
+    return count;
+  }
+}
+
+// ============================================================
+// AMBIENT BACKGROUND GLOW SYSTEM
+// ============================================================
+
+class AmbientGlow {
+  constructor() {
+    this.glows = [];
+    this.maxGlows = 12;
+    this.decayRate = 0.85; // per second multiplier
+  }
+
+  addGlow(x, y) {
+    this.glows.push({
+      x,
+      y,
+      radius: randFloat(200, 500),
+      maxRadius: randFloat(400, 900),
+      alpha: randFloat(0.15, 0.35),
+      age: 0,
+      maxLife: randFloat(2.0, 4.0),
+      r: 255,
+      g: randInt(150, 230),
+      b: randInt(20, 80),
+      pulseSpeed: randFloat(1, 3),
+      pulseAmt: randFloat(0.05, 0.15),
+      pulseTimer: Math.random() * TWO_PI
+    });
+    if (this.glows.length > this.maxGlows) {
+      this.glows.shift();
+    }
+  }
+
+  update(dt) {
+    for (let i = this.glows.length - 1; i >= 0; i--) {
+      const g = this.glows[i];
+      g.age += dt;
+      g.pulseTimer += dt;
+      if (g.age >= g.maxLife) {
+        this.glows.splice(i, 1);
+        continue;
+      }
+      const p = g.age / g.maxLife;
+      if (p < 0.15) {
+        g.alpha = lerp(0, 0.30, p / 0.15);
+        g.radius = lerp(g.radius * 0.3, g.maxRadius * 0.7, easeOutQuad(p / 0.15));
+      } else if (p > 0.5) {
+        g.alpha = lerp(0.30, 0, (p - 0.5) / 0.5);
+        g.radius = lerp(g.maxRadius * 0.7, g.maxRadius, (p - 0.5) / 0.5);
+      } else {
+        g.alpha = 0.30;
+        g.radius = g.maxRadius * 0.7;
+      }
+    }
+  }
+
+  draw(ctx) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const g of this.glows) {
+      if (g.alpha <= 0.005) continue;
+      const pulse = 1 + g.pulseAmt * Math.sin(g.pulseTimer * g.pulseSpeed);
+      const r = g.radius * pulse;
+      ctx.globalAlpha = g.alpha;
+      const grad = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, r);
+      grad.addColorStop(0, rgbaStr(g.r, g.g, g.b, 0.6));
+      grad.addColorStop(0.4, rgbaStr(g.r, Math.max(0, g.g - 60), 0, 0.3));
+      grad.addColorStop(0.7, rgbaStr(Math.min(255, g.r - 30), 0, 0, 0.1));
+      grad.addColorStop(1, rgbaStr(0, 0, 0, 0));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, r, 0, TWO_PI);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// DIVINE RUNE SYSTEM (ancient symbols that appear briefly)
+// ============================================================
+
+class DivineRune {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.radius = 0;
+    this.age = 0;
+    this.maxLife = 0;
+    this.alpha = 0;
+    this.rotation = 0;
+    this.rotSpeed = 0;
+    this.runeType = 0;
+    this.numSymbols = 0;
+    this.symbols = [];
+    this.innerRadius = 0;
+    this.outerRingAlpha = 0;
+    this.segments = 0;
+  }
+
+  init(x, y) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.radius = randFloat(100, 220);
+    this.age = 0;
+    this.maxLife = randFloat(1.2, 2.2);
+    this.alpha = 0;
+    this.rotation = randAngle();
+    this.rotSpeed = randFloat(-1.5, 1.5);
+    this.innerRadius = this.radius * randFloat(0.4, 0.7);
+    this.runeType = randInt(0, 3);
+    this.numSymbols = randInt(6, 12);
+    this.segments = randInt(3, 8);
+
+    this.symbols = [];
+    for (let i = 0; i < this.numSymbols; i++) {
+      this.symbols.push({
+        angle: (i / this.numSymbols) * TWO_PI,
+        size: randFloat(8, 18),
+        type: randInt(0, 4),
+        rotOffset: randAngle()
+      });
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (this.age >= this.maxLife) { this.active = false; return; }
+    this.rotation += this.rotSpeed * dt;
+
+    const p = this.age / this.maxLife;
+    if (p < 0.12) {
+      this.alpha = lerp(0, 1, p / 0.12);
+    } else if (p > 0.65) {
+      this.alpha = lerp(1, 0, (p - 0.65) / 0.35);
+    } else {
+      this.alpha = 1;
+    }
+  }
+
+  drawSymbol(ctx, type, cx, cy, size, rotation) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rotation);
+    ctx.beginPath();
+    switch (type) {
+      case 0: // Cross
+        ctx.moveTo(-size, 0); ctx.lineTo(size, 0);
+        ctx.moveTo(0, -size); ctx.lineTo(0, size);
+        break;
+      case 1: // Triangle
+        for (let i = 0; i < 3; i++) {
+          const a = (i / 3) * TWO_PI - Math.PI / 2;
+          const px = Math.cos(a) * size;
+          const py = Math.sin(a) * size;
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        break;
+      case 2: // Diamond
+        ctx.moveTo(0, -size);
+        ctx.lineTo(size * 0.6, 0);
+        ctx.lineTo(0, size);
+        ctx.lineTo(-size * 0.6, 0);
+        ctx.closePath();
+        break;
+      case 3: // Asterisk
+        for (let i = 0; i < 6; i++) {
+          const a = (i / 6) * TWO_PI;
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(a) * size, Math.sin(a) * size);
+        }
+        break;
+      case 4: // Square
+        ctx.rect(-size * 0.5, -size * 0.5, size, size);
+        break;
+    }
+    ctx.restore();
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotation);
+    ctx.globalAlpha = this.alpha;
+
+    const goldColor = rgbaStr(255, 220, 80, this.alpha);
+    const brightColor = rgbaStr(255, 255, 180, this.alpha);
+    const dimColor = rgbaStr(255, 200, 60, this.alpha * 0.6);
+
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = rgbaStr(255, 240, 120, this.alpha * 0.8);
+
+    // Outer ring
+    ctx.strokeStyle = goldColor;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.radius, 0, TWO_PI);
+    ctx.stroke();
+
+    // Inner ring
+    ctx.strokeStyle = dimColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(0, 0, this.innerRadius, 0, TWO_PI);
+    ctx.stroke();
+
+    // Segment lines (like a compass)
+    ctx.strokeStyle = goldColor;
+    ctx.lineWidth = 1;
+    for (let s = 0; s < this.segments; s++) {
+      const a = (s / this.segments) * TWO_PI;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * this.innerRadius, Math.sin(a) * this.innerRadius);
+      ctx.lineTo(Math.cos(a) * this.radius, Math.sin(a) * this.radius);
+      ctx.stroke();
+    }
+
+    // Symbols along the ring
+    ctx.strokeStyle = brightColor;
+    ctx.fillStyle = rgbaStr(255, 255, 200, this.alpha * 0.3);
+    ctx.lineWidth = 1.5;
+    for (const sym of this.symbols) {
+      const sx = Math.cos(sym.angle) * (this.innerRadius + (this.radius - this.innerRadius) * 0.5);
+      const sy = Math.sin(sym.angle) * (this.innerRadius + (this.radius - this.innerRadius) * 0.5);
+      this.drawSymbol(ctx, sym.type, sx, sy, sym.size, sym.angle + sym.rotOffset + this.rotation);
+      ctx.stroke();
+    }
+
+    // Center cross
+    ctx.strokeStyle = brightColor;
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 20;
+    const cs = this.innerRadius * 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-cs, 0); ctx.lineTo(cs, 0);
+    ctx.moveTo(0, -cs); ctx.lineTo(0, cs);
+    ctx.stroke();
+
+    // Center dot
+    ctx.fillStyle = rgbaStr(255, 255, 240, this.alpha * 0.9);
+    ctx.shadowBlur = 25;
+    ctx.beginPath();
+    ctx.arc(0, 0, 5, 0, TWO_PI);
+    ctx.fill();
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// LIGHTNING BOLT SYSTEM (divine lightning strikes)
+// ============================================================
+
+class LightningBolt {
+  constructor() {
+    this.active = false;
+    this.segments = [];
+    this.age = 0;
+    this.maxLife = 0;
+    this.alpha = 0;
+    this.x1 = 0;
+    this.y1 = 0;
+    this.x2 = 0;
+    this.y2 = 0;
+    this.branches = [];
+    this.flickerTimer = 0;
+    this.flickerAlpha = 1;
+  }
+
+  generateSegments(x1, y1, x2, y2, roughness, depth) {
+    if (depth <= 0 || Math.abs(x2 - x1) + Math.abs(y2 - y1) < 10) {
+      return [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+    }
+    const midX = (x1 + x2) * 0.5 + randFloat(-roughness, roughness);
+    const midY = (y1 + y2) * 0.5 + randFloat(-roughness, roughness);
+    const left = this.generateSegments(x1, y1, midX, midY, roughness * 0.6, depth - 1);
+    const right = this.generateSegments(midX, midY, x2, y2, roughness * 0.6, depth - 1);
+    right.shift();
+    return [...left, ...right];
+  }
+
+  init(x1, y1, x2, y2) {
+    this.active = true;
+    this.x1 = x1; this.y1 = y1;
+    this.x2 = x2; this.y2 = y2;
+    this.age = 0;
+    this.maxLife = randFloat(0.15, 0.4);
+    this.alpha = 1;
+    this.flickerTimer = 0;
+
+    const roughness = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2) * 0.25;
+    this.segments = this.generateSegments(x1, y1, x2, y2, roughness, 6);
+
+    this.branches = [];
+    const numBranches = randInt(2, 5);
+    for (let b = 0; b < numBranches; b++) {
+      const startIdx = randInt(1, this.segments.length - 2);
+      const start = this.segments[startIdx];
+      const branchAngle = Math.atan2(y2 - y1, x2 - x1) + randFloat(-1.0, 1.0);
+      const branchLen = randFloat(40, 120);
+      const bx2 = start.x + Math.cos(branchAngle) * branchLen;
+      const by2 = start.y + Math.sin(branchAngle) * branchLen;
+      const broughness = branchLen * 0.3;
+      this.branches.push({
+        segments: this.generateSegments(start.x, start.y, bx2, by2, broughness, 4),
+        alpha: randFloat(0.3, 0.7)
+      });
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    this.flickerTimer += dt;
+    if (this.age >= this.maxLife) { this.active = false; return; }
+    const p = this.age / this.maxLife;
+    this.alpha = p < 0.1 ? 1 : Math.pow(1 - p, 1.5);
+    // Flicker effect
+    this.flickerAlpha = 0.7 + 0.3 * Math.sin(this.flickerTimer * 60);
+  }
+
+  drawSegmentList(ctx, segs, lineWidth, color) {
+    if (segs.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(segs[0].x, segs[0].y);
+    for (let i = 1; i < segs.length; i++) {
+      ctx.lineTo(segs[i].x, segs[i].y);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = lineWidth;
+    ctx.stroke();
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005 || this.segments.length < 2) return;
+
+    const fa = this.alpha * this.flickerAlpha;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = fa;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // Outer glow pass
+    ctx.shadowBlur = 30;
+    ctx.shadowColor = rgbaStr(255, 240, 150, fa * 0.8);
+    this.drawSegmentList(ctx, this.segments, 6, rgbaStr(255, 220, 100, fa * 0.4));
+
+    // Mid glow
+    ctx.shadowBlur = 15;
+    this.drawSegmentList(ctx, this.segments, 3, rgbaStr(255, 250, 200, fa * 0.7));
+
+    // Core bright
+    ctx.shadowBlur = 5;
+    this.drawSegmentList(ctx, this.segments, 1.5, rgbaStr(255, 255, 255, fa));
+
+    // Branches
+    for (const branch of this.branches) {
+      ctx.globalAlpha = fa * branch.alpha;
+      ctx.shadowBlur = 10;
+      ctx.shadowColor = rgbaStr(255, 240, 150, fa * branch.alpha * 0.6);
+      this.drawSegmentList(ctx, branch.segments, 2, rgbaStr(255, 240, 150, fa * branch.alpha * 0.8));
+      this.drawSegmentList(ctx, branch.segments, 1, rgbaStr(255, 255, 255, fa * branch.alpha));
+    }
+
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// GOLDEN RING BURST (expanding golden rings from impact)
+// ============================================================
+
+class GoldenRingBurst {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.rings = [];
+    this.age = 0;
+    this.maxLife = 0;
+  }
+
+  init(x, y) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.age = 0;
+    this.maxLife = randFloat(1.5, 2.5);
+    this.rings = [];
+    const numRings = randInt(5, 10);
+    for (let i = 0; i < numRings; i++) {
+      this.rings.push({
+        radius: randFloat(30, 80),
+        maxRadius: randFloat(200, 600),
+        age: 0,
+        delay: i * randFloat(0.03, 0.08),
+        maxLife: randFloat(0.8, 1.5),
+        alpha: 0,
+        active: true,
+        thickness: randFloat(1, 3),
+        r: 255,
+        g: randInt(200, 250),
+        b: randInt(80, 150)
+      });
+    }
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    let anyActive = false;
+    for (const ring of this.rings) {
+      if (!ring.active) continue;
+      ring.age += dt;
+      const eff = ring.age - ring.delay;
+      if (eff <= 0) { anyActive = true; continue; }
+      const p = eff / ring.maxLife;
+      if (p >= 1) { ring.active = false; continue; }
+      anyActive = true;
+      ring.radius = ring.maxRadius * easeOutCubic(p);
+      ring.alpha = p < 0.1 ? lerp(0, 0.9, p / 0.1) : Math.pow(1 - p, 2.0) * 0.9;
+    }
+    if (!anyActive) this.active = false;
+  }
+
+  draw(ctx) {
+    if (!this.active) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const ring of this.rings) {
+      if (!ring.active || ring.alpha <= 0.005 || ring.radius <= 0) continue;
+      ctx.globalAlpha = ring.alpha;
+      ctx.shadowBlur = ring.thickness * 8;
+      ctx.shadowColor = rgbaStr(ring.r, ring.g, ring.b, ring.alpha * 0.8);
+      ctx.strokeStyle = rgbaStr(ring.r, ring.g, ring.b, ring.alpha);
+      ctx.lineWidth = ring.thickness;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, ring.radius, 0, TWO_PI);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// GROUND SCORCH (persistent ground effect)
+// ============================================================
+
+class GroundScorch {
+  constructor() {
+    this.active = false;
+    this.x = 0;
+    this.y = 0;
+    this.radius = 0;
+    this.age = 0;
+    this.maxLife = 8.0;
+    this.alpha = 0;
+  }
+
+  init(x, y) {
+    this.active = true;
+    this.x = x;
+    this.y = y;
+    this.radius = randFloat(80, 180);
+    this.age = 0;
+    this.maxLife = randFloat(5, 10);
+    this.alpha = 0;
+  }
+
+  update(dt) {
+    if (!this.active) return;
+    this.age += dt;
+    if (this.age >= this.maxLife) { this.active = false; return; }
+    const p = this.age / this.maxLife;
+    if (p < 0.1) {
+      this.alpha = lerp(0, 0.6, p / 0.1);
+    } else if (p > 0.7) {
+      this.alpha = lerp(0.6, 0, (p - 0.7) / 0.3);
+    } else {
+      this.alpha = 0.6;
+    }
+  }
+
+  draw(ctx) {
+    if (!this.active || this.alpha <= 0.005) return;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = this.alpha * 0.5;
+    const grad = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, this.radius);
+    grad.addColorStop(0, rgbaStr(20, 10, 5, 0.8));
+    grad.addColorStop(0.5, rgbaStr(30, 15, 5, 0.5));
+    grad.addColorStop(0.8, rgbaStr(40, 20, 8, 0.2));
+    grad.addColorStop(1, rgbaStr(0, 0, 0, 0));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.ellipse(this.x, this.y, this.radius, this.radius * 0.35, 0, 0, TWO_PI);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// EXTENDED EXPLOSION MANAGER (with all extra systems)
+// ============================================================
+
+class FullExplosionManager extends ExplosionManager {
+  constructor() {
+    super();
+    this.ambientGlow = new AmbientGlow();
+    this.divineRunes = [];
+    this.lightningBolts = [];
+    this.goldenRingBursts = [];
+    this.groundScorches = [];
+    this.goldenRingBurstPool = [];
+    this.prevTime = 0;
+  }
+
+  triggerExplosion(x, y) {
+    super.triggerExplosion(x, y);
+
+    // Ambient glow
+    this.ambientGlow.addGlow(x, y);
+    this.ambientGlow.addGlow(x + randFloat(-80, 80), y + randFloat(-40, 40));
+
+    // Divine rune
+    if (Math.random() > 0.3) {
+      const rune = new DivineRune();
+      rune.init(x, y);
+      this.divineRunes.push(rune);
+      // Second outer rune
+      if (Math.random() > 0.5) {
+        const rune2 = new DivineRune();
+        rune2.init(x, y);
+        rune2.radius = rune.radius * 1.8;
+        rune2.innerRadius = rune2.radius * 0.5;
+        rune2.rotSpeed *= -1;
+        this.divineRunes.push(rune2);
+      }
+    }
+
+    // Lightning bolts from sky
+    const numLightning = randInt(2, 5);
+    for (let l = 0; l < numLightning; l++) {
+      const lb = new LightningBolt();
+      const lx = x + randFloat(-150, 150);
+      lb.init(lx, -50, x + randFloat(-30, 30), y);
+      this.lightningBolts.push(lb);
+    }
+
+    // Deferred lightning
+    this.deferredEmissions.push({
+      delay: randFloat(0.08, 0.2),
+      age: 0,
+      fired: false,
+      fn: () => {
+        const numLB = randInt(1, 3);
+        for (let l = 0; l < numLB; l++) {
+          const lb = new LightningBolt();
+          lb.init(x + randFloat(-180, 180), -50, x + randFloat(-50, 50), y);
+          this.lightningBolts.push(lb);
+        }
+      }
+    });
+
+    // Golden ring burst
+    const grb = new GoldenRingBurst();
+    grb.init(x, y);
+    this.goldenRingBursts.push(grb);
+
+    // Ground scorch
+    const gs = new GroundScorch();
+    gs.init(x, y);
+    this.groundScorches.push(gs);
+  }
+
+  update(dt) {
+    super.update(dt);
+    this.ambientGlow.update(dt);
+
+    for (let i = this.divineRunes.length - 1; i >= 0; i--) {
+      this.divineRunes[i].update(dt);
+      if (!this.divineRunes[i].active) this.divineRunes.splice(i, 1);
+    }
+    for (let i = this.lightningBolts.length - 1; i >= 0; i--) {
+      this.lightningBolts[i].update(dt);
+      if (!this.lightningBolts[i].active) this.lightningBolts.splice(i, 1);
+    }
+    for (let i = this.goldenRingBursts.length - 1; i >= 0; i--) {
+      this.goldenRingBursts[i].update(dt);
+      if (!this.goldenRingBursts[i].active) this.goldenRingBursts.splice(i, 1);
+    }
+    for (let i = this.groundScorches.length - 1; i >= 0; i--) {
+      this.groundScorches[i].update(dt);
+      if (!this.groundScorches[i].active) this.groundScorches.splice(i, 1);
+    }
+  }
+
+  draw(ctx) {
+    // Ground scorches (very back)
+    ctx.save();
+    for (const gs of this.groundScorches) gs.draw(ctx);
+    ctx.restore();
+
+    // Ambient glow (behind everything)
+    this.ambientGlow.draw(ctx);
+
+    // Main explosion
+    super.draw(ctx);
+
+    // Additional effects on top
+    ctx.save();
+    // Divine runes
+    for (const rune of this.divineRunes) rune.draw(ctx);
+    // Lightning
+    for (const lb of this.lightningBolts) lb.draw(ctx);
+    // Golden rings
+    for (const grb of this.goldenRingBursts) grb.draw(ctx);
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// BACKGROUND STAR FIELD (ambient depth)
+// ============================================================
+
+class StarField {
+  constructor(count) {
+    this.stars = [];
+    for (let i = 0; i < count; i++) {
+      this.stars.push({
+        x: Math.random() * 2000,
+        y: Math.random() * 2000,
+        r: randFloat(0.3, 1.5),
+        alpha: randFloat(0.1, 0.6),
+        twinkleSpeed: randFloat(0.5, 2.0),
+        twinkleTimer: Math.random() * TWO_PI
+      });
+    }
+  }
+
+  update(dt) {
+    for (const star of this.stars) {
+      star.twinkleTimer += dt;
+      star.alpha = 0.1 + 0.5 * (0.5 + 0.5 * Math.sin(star.twinkleTimer * star.twinkleSpeed));
+    }
+  }
+
+  draw(ctx) {
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    for (const star of this.stars) {
+      const sx = (star.x / 2000) * W;
+      const sy = (star.y / 2000) * H;
+      ctx.globalAlpha = star.alpha * 0.3;
+      ctx.beginPath();
+      ctx.arc(sx, sy, star.r, 0, TWO_PI);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+
+const explosionManager = new FullExplosionManager();
+const starField = new StarField(200);
+
+let lastTime = 0;
+let frameCount = 0;
+let fpsTimer = 0;
+let fps = 60;
+
+// Trail/persistence settings
+const TRAIL_ALPHA = 0.18;
+
+function clearCanvas() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = TRAIL_ALPHA;
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+function update(dt) {
+  starField.update(dt);
+  explosionManager.update(dt);
+}
+
+function draw() {
+  clearCanvas();
+
+  // Background stars
+  starField.draw(ctx);
+
+  // All explosion effects
+  explosionManager.draw(ctx);
+}
+
+function loop(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05); // cap at 50ms
+  lastTime = timestamp;
+
+  frameCount++;
+  fpsTimer += dt;
+  if (fpsTimer >= 0.5) {
+    fps = Math.round(frameCount / fpsTimer);
+    frameCount = 0;
+    fpsTimer = 0;
+  }
+
+  update(dt);
+  draw();
+
+  // Update particle count display
+  const totalParticles = explosionManager.totalParticleCount;
+  if (particleCountDisplay) {
+    particleCountDisplay.textContent =
+      `particles: ${totalParticles.toLocaleString()} | fps: ${fps}`;
+  }
+
+  requestAnimationFrame(loop);
+}
+
+// ============================================================
+// INPUT HANDLING
+// ============================================================
+
+function handlePointerDown(e) {
+  e.preventDefault();
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+
+  let clientX, clientY;
+  if (e.touches) {
+    clientX = e.touches[0].clientX;
+    clientY = e.touches[0].clientY;
+  } else {
+    clientX = e.clientX;
+    clientY = e.clientY;
+  }
+
+  const x = (clientX - rect.left) * scaleX;
+  const y = (clientY - rect.top) * scaleY;
+
+  explosionManager.triggerExplosion(x, y);
+}
+
+canvas.addEventListener('mousedown', handlePointerDown);
+canvas.addEventListener('touchstart', handlePointerDown, { passive: false });
+
+// Prevent context menu on right-click
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// Right-click also triggers
+canvas.addEventListener('mousedown', e => {
+  if (e.button === 2) {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    explosionManager.triggerExplosion(x, y);
+  }
 });
 
-if(move === null) return "snapback";
+// Hide hint after first click
+let hintHidden = false;
+const hint = document.getElementById('hint');
+canvas.addEventListener('mousedown', () => {
+  if (!hintHidden) {
+    hintHidden = true;
+    hint.style.transition = 'opacity 1s';
+    hint.style.opacity = '0';
+    setTimeout(() => { hint.style.display = 'none'; }, 1000);
+  }
+}, { once: false });
 
-moveHistory.push(move);
+// ============================================================
+// STARTUP DEMO EXPLOSION
+// ============================================================
 
-if(
-moveHistory.length === 1 &&
-move.from === "g2" &&
-move.to === "g4"
-){
-
-grobMode = true;
-
-const div = document.createElement("div");
-
-div.className = "line";
-
-div.innerHTML =
-'<span style="color:gold">Grob Trap Mode Activated</span>';
-
-panel.prepend(div);
-
+function playIntroExplosion() {
+  setTimeout(() => {
+    explosionManager.triggerExplosion(W * 0.5, H * 0.5);
+  }, 400);
 }
 
-board.position(game.fen());
+// ============================================================
+// START
+// ============================================================
 
-if(grobMode && game.turn() === "w"){
-
-setTimeout(analyzePosition,150);
-
-}
-
-}
-
-function onSnapEnd(){
-
-board.position(game.fen());
-
-}
-
-board = Chessboard("board",{
-
-draggable:true,
-position:"start",
-pieceTheme:"https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png",
-
-onDragStart:onDragStart,
-onDrop:onDrop,
-onSnapEnd:onSnapEnd
-
+requestAnimationFrame((ts) => {
+  lastTime = ts;
+  playIntroExplosion();
+  requestAnimationFrame(loop);
 });
-
-resizeCanvas();
-
-function analyzePosition(){
-
-clearArrows();
-
-panel.innerHTML = "";
-
-const moves = game.history({verbose:true});
-
-const last = moves[moves.length-1];
-
-if(!last) return;
-
-addArrow("c2","c4","gold","Fritz Gambit");
-addArrow("d1","b3","cyan","Qb3 Pressure");
-addArrow("d1","a4","purple","Qa4+ Fork");
-addArrow("g2","b7","orange","Bxb7 Rook Theft");
-addArrow("f2","f4","pink","All-In Attack");
-addArrow("h2","h4","lime","Kingside Storm");
-addArrow("g4","g5","lime","Pawn Storm");
-addArrow("d1","h5","red","Mate Threat");
-addArrow("e2","e4","gold","Center Explosion");
-addArrow("b2","b4","white","Chaos Gambit");
-
-if(last.to === "d5"){
-
-addArrow("g2","d5","yellow","Bishop Sacrifice");
-addArrow("b1","c3","cyan","Knight Launch");
-addArrow("f3","e5","cyan","Knight Sacrifice");
-
-}
-
-if(last.to === "e5"){
-
-addArrow("h1","h3","orange","Rook Lift");
-addArrow("g2","b7","orange","Diagonal Raid");
-addArrow("g4","e5","red","Pawn Sacrifice");
-
-}
-
-if(last.to === "c6"){
-
-addArrow("b3","b7","purple","Queen Infiltration");
-addArrow("g2","c6","yellow","Bishop Strike");
-
-}
-
-if(last.to === "f6"){
-
-addArrow("g5","f6","red","Pawn Break");
-addArrow("d1","h5","red","Attack h7");
-
-}
-
-if(last.to === "h5"){
-
-addArrow("g4","h5","lime","Open File");
-addArrow("h1","h3","orange","Rook Lift");
-
-}
-
-if(last.to === "c5"){
-
-addArrow("a2","a4","silver","Wing Expansion");
-addArrow("c2","c3","gold","Reverse Setup");
-
-}
-
-renderArrows();
-
-}
 
 </script>
-
 </body>
 </html>
